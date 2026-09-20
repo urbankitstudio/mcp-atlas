@@ -1,6 +1,7 @@
 {
   "name": "@urbankitstudio/mcp-atlas",
-  "version": "0.2.2",
+  "version": "0.2.3",
+  "mcpName": "io.github.LEOyrh/mcp-atlas",
   "description": "Query the verified parcel ArcGIS REST endpoints of 171 counties across all 50 US states (174 layers) for owner, APN and address lookup via the Model Context Protocol (MCP).",
   "keywords": [
     "mcp",
@@ -18,11 +19,10 @@
   "homepage": "https://urbankitstudio.com/parcel-atlas",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LEOyrh/urbankitstudio.git",
-    "directory": "packages/mcp-atlas"
+    "url": "git+https://github.com/urbankitstudio/mcp-atlas.git"
   },
   "bugs": {
-    "url": "https://github.com/LEOyrh/urbankitstudio/issues"
+    "url": "https://github.com/urbankitstudio/mcp-atlas/issues"
   },
   "author": "UrbanKit Studio <urbankitstudio@gmail.com>",
   "license": "MIT",

@@ -6,6 +6,17 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.3 — 2026-09-20
+
+No code change. The package manifest gains the `mcpName` field
+(`io.github.LEOyrh/mcp-atlas`) that the official MCP registry reads from the
+published npm package to prove the publisher owns it. 0.1.5 carried it, the
+monorepo's manifest never did, and every publish since (0.1.6 through 0.2.2)
+went out without it, so the registry refused to list any of them: it still
+served 0.1.5 with the old repository URL until this release. The publish
+workflow now refuses a manifest without the field, and CI pins it to
+`server.json`'s name.
+
 ## 0.2.2 — 2026-09-18
 
 Tool descriptions rewritten, plus one security fix. The same four tools take the
