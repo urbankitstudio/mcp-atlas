@@ -52,7 +52,18 @@ jobs:
             echo "::error::node_modules/@urbankitstudio/atlas is a symlink, so this build is not using the published atlas."
             exit 1
           fi
-          echo "atlas resolved to $(node -p "require('@urbankitstudio/atlas/package.json').version")"
+          # Assert where it actually came from, rather than printing a version:
+          # a `file:` or `link:` resolution is the failure this step exists to
+          # catch, and it carries a version string just like a registry one does.
+          RESOLVED=$(npm ls @urbankitstudio/atlas --json | node -p "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')).dependencies['@urbankitstudio/atlas'] || {}; (d.resolved || 'none') + ' ' + (d.version || '?')")
+          echo "atlas resolved from: $RESOLVED"
+          case "$RESOLVED" in
+            https://registry.npmjs.org/*) ;;
+            *)
+              echo "::error::@urbankitstudio/atlas did not come from the npm registry (resolved: $RESOLVED). This package is not standalone."
+              exit 1
+              ;;
+          esac
 
       - name: Typecheck
         run: npm run typecheck
