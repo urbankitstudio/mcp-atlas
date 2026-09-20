@@ -1,0 +1,133 @@
+name: CI
+
+# This package has never had CI anywhere. While the source lived in the private
+# monorepo its suite ran only inside `prepublishOnly` — i.e. at the moment of a
+# release, which is the most expensive moment to meet a red — because that
+# repo's ci.yml names no packages/ path and its vitest config excludes
+# packages/**. Now that the source lives here, this is where that coverage
+# lands, on every push and every pull request.
+#
+# Read-only on purpose: no id-token, no registry credential, nothing this job
+# can reach npm with. Publishing lives in publish.yml and nowhere else.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.19.0'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      # In the monorepo @urbankitstudio/atlas could resolve to the workspace
+      # sibling, and a leftover `npm link` in a working tree still does. Here
+      # there is no sibling: the lockfile must resolve it from the registry, or
+      # this package is not standalone and the split is not finished. A link
+      # would also make the build depend on a tree nobody else has.
+      - name: The atlas dependency comes from the registry, not from a link
+        run: |
+          set -euo pipefail
+          npm ls @urbankitstudio/atlas
+          if [ -L node_modules/@urbankitstudio/atlas ]; then
+            echo "::error::node_modules/@urbankitstudio/atlas is a symlink, so this build is not using the published atlas."
+            exit 1
+          fi
+          # Assert where it actually came from, rather than printing a version:
+          # a `file:` or `link:` resolution is the failure this step exists to
+          # catch, and it carries a version string just like a registry one does.
+          RESOLVED=$(npm ls @urbankitstudio/atlas --json | node -p "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')).dependencies['@urbankitstudio/atlas'] || {}; (d.resolved || 'none') + ' ' + (d.version || '?')")
+          echo "atlas resolved from: $RESOLVED"
+          case "$RESOLVED" in
+            https://registry.npmjs.org/*) ;;
+            *)
+              echo "::error::@urbankitstudio/atlas did not come from the npm registry (resolved: $RESOLVED). This package is not standalone."
+              exit 1
+              ;;
+          esac
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # The steps below name the files they run. A third file added to test/
+      # would otherwise sit unrun and green — exactly the failure this workflow
+      # exists to remove. So assert the SET, and make adding a test force the
+      # wiring that runs it.
+      - name: Every file in test/ is actually run by this workflow
+        run: |
+          set -euo pipefail
+          FOUND=$(LC_ALL=C ls test | LC_ALL=C sort | tr '\n' ' ')
+          EXPECTED="show-owner-unavailable.mjs smoke.mjs "
+          echo "test/ holds: $FOUND"
+          if [ "$FOUND" != "$EXPECTED" ]; then
+            echo "::error::test/ holds [$FOUND] but this workflow runs [$EXPECTED]. Add a step that runs the new file, then update EXPECTED here."
+            exit 1
+          fi
+
+      # The package's own suite: spawns the built server, speaks JSON-RPC over
+      # stdio and asserts on real atlas data — tool registration, county lookup,
+      # the SQL-injection quoting, and the owner-unavailable refusal. It exits
+      # non-zero when an assertion fails (proven by mutating one tool name and
+      # watching it turn red).
+      - name: Smoke the built server over stdio
+        run: node test/smoke.mjs
+
+      # Not a unit test: it prints the words an MCP client is shown for a county
+      # that publishes no owner name, and it exits 0 whatever it prints. Run it
+      # under a timeout so a server that never answers is a red instead of a hung
+      # job, and assert the output carries a body — an errored tool call prints
+      # an empty section and still exits 0.
+      - name: The owner-unavailable wording still renders
+        run: |
+          set -euo pipefail
+          timeout 120 node test/show-owner-unavailable.mjs | tee owner-wording.txt
+          if grep -q "not found" owner-wording.txt; then
+            echo "::error::list_counties no longer returns the county this script reads."
+            exit 1
+          fi
+          if ! grep -q "OWNER NAME NOT AVAILABLE" owner-wording.txt; then
+            echo "::error::build_owner_query printed no owner-unavailable wording, so the tool call likely errored while the script still exited 0."
+            exit 1
+          fi
+          rm -f owner-wording.txt
+
+      # public-repo-owner.test.ts in the monorepo used to pin these fields. It
+      # cannot reach this repository, so the assertion lives where the file does.
+      # npm provenance also requires `repository` to match the repo it publishes
+      # from, so a wrong value here fails a release, not merely a link on npm.
+      - name: The manifest points at this repository
+        run: |
+          node -e '
+            const p = require("./package.json");
+            const want = "https://github.com/urbankitstudio/mcp-atlas";
+            const bad = [];
+            if (p.repository?.url !== `git+${want}.git`) bad.push(`repository.url=${p.repository?.url}`);
+            if (p.bugs?.url !== `${want}/issues`) bad.push(`bugs.url=${p.bugs?.url}`);
+            if (bad.length) {
+              console.error("::error::manifest points elsewhere: " + bad.join(", "));
+              process.exit(1);
+            }
+            console.log("manifest ok: " + p.repository.url);
+          '

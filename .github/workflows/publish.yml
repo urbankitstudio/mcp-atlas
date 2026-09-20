@@ -1,0 +1,282 @@
+name: Publish @urbankitstudio/mcp-atlas
+
+# The source of truth for this package now lives here, so this repository
+# publishes itself. Previously the private monorepo published it and then pushed
+# a copy here with a personal access token; that token existed only because a
+# PRIVATE repo cannot push to a public one with its own GITHUB_TOKEN. With the
+# source here there is nothing to push and no token to hold.
+#
+# AUTHENTICATION IS OIDC TRUSTED PUBLISHING. There is no NPM_TOKEN, no
+# NODE_AUTH_TOKEN and no `npm login` in this file, and none should ever be added:
+# npm mints a short-lived credential from the id-token below. npm's own
+# requirements (docs.npmjs.com/trusted-publishers, read 2026-09-20) are npm
+# >= 11.5.1 and Node >= 22.14.0, both pinned and then ASSERTED below rather than
+# assumed, so a pin edited downwards fails here instead of at the exchange.
+#
+# PROVENANCE is the reason this package moved out of the monorepo. npm refuses
+# provenance from a private source repo (E422), which is why the monorepo's
+# workflow carried "no provenance" in its comments. From this public repo npm
+# generates it automatically over OIDC; we pass --provenance anyway so the
+# publish FAILS CLOSED if an attestation cannot be produced, rather than quietly
+# shipping an unattested tarball, and the step after it reads the attestation
+# back off the registry instead of assuming it exists.
+#
+# ⚠️ ONE-TIME SETUP: the Trusted Publisher entry for @urbankitstudio/mcp-atlas on
+# npmjs.com names a repository AND a workflow filename. It currently names
+# urbankitstudio/urbankitstudio + publish-mcp-atlas-package.yml, so until it is
+# repointed at urbankitstudio/mcp-atlas + publish.yml (this file), a real publish
+# here fails at the OIDC exchange. That is the correct failure: it fails closed,
+# and nothing is published in the meantime.
+#
+# ⚠️ THE MCP REGISTRY IS NOT PUBLISHED FROM HERE, and no step should be added
+# that tries. The listing is io.github.LEOyrh/mcp-atlas, and the registry grants
+# a workflow only io.github.<repository_owner>/* — from this repo that is
+# io.github.urbankitstudio/*, which does not cover it. That publish stays a
+# manual step run as LEOyrh:
+#   mcp-publisher login github && mcp-publisher publish ./server.json
+
+on:
+  # Dispatch only. There is deliberately no push/tag trigger: publishing is
+  # outward-facing and effectively irreversible (npm blocks unpublish after 72h,
+  # and immediately once anything depends on the package), so it is always a
+  # deliberate act by a human, never a side effect of a commit landing.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and verify the tarball WITHOUT publishing'
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-mcp-atlas
+  cancel-in-progress: false
+
+# Default for every job; the publish job raises what it needs and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Carries the Trusted Publishing identity (OIDC). This single line is the
+      # whole credential story for this workflow.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # Exact, not a range: the toolchain that signs a release should only
+          # move when someone changes this line. 24.19.0 ships npm 11.17.0, so
+          # the npm floor already holds before the upgrade step below; Node's own
+          # floor for trusted publishing is 22.14.0, which ships npm 10.9.2 —
+          # below the npm floor, which is why that step exists at all.
+          node-version: '24.19.0'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Pinned exactly, not npm@11 and not @latest: @11 still floats within the
+      # major, and the publish tool must not move under a release on its own.
+      # Runs on dry runs too, deliberately — a rehearsal that skips a step cannot
+      # rehearse it.
+      - name: Upgrade npm for OIDC publishing
+        run: |
+          npm install -g npm@11.19.1
+          echo "npm $(npm --version)"
+
+      # The pins above are a claim; this is the check. If either is edited below
+      # npm's documented floor, the run goes red here with the reason, instead of
+      # failing later at the OIDC exchange with a message about trusted
+      # publishing that says nothing about the toolchain.
+      - name: The toolchain meets npm's trusted-publishing floors
+        run: |
+          set -euo pipefail
+          MIN_NPM=11.5.1
+          MIN_NODE=22.14.0
+          NPM_V=$(npm --version)
+          NODE_V=$(node --version)
+          NODE_V=${NODE_V#v}
+          echo "npm $NPM_V (floor $MIN_NPM) / node $NODE_V (floor $MIN_NODE)"
+          if [ "$(printf '%s\n%s\n' "$MIN_NPM" "$NPM_V" | sort -V | head -1)" != "$MIN_NPM" ]; then
+            echo "::error::npm $NPM_V is below $MIN_NPM, the minimum for trusted publishing. Raise the pin in the upgrade step."
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$MIN_NODE" "$NODE_V" | sort -V | head -1)" != "$MIN_NODE" ]; then
+            echo "::error::Node $NODE_V is below $MIN_NODE, the minimum for trusted publishing. Raise node-version in the setup step."
+            exit 1
+          fi
+
+      # A dispatch runs against whatever ref was selected. A real publish must
+      # come from a tag that names the version being published, so what went out
+      # is identifiable afterwards from the repository alone — a provenance
+      # attestation pointing at a branch tip that has since moved proves much
+      # less. Dry runs are allowed from any ref: that is what makes them cheap.
+      - name: A real publish may only run from its version tag
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          echo "dry_run=$DRY_RUN ref_type=${{ github.ref_type }} ref=${{ github.ref_name }} version=$V"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: nothing can be published, so any ref is fine."
+            exit 0
+          fi
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "::error::A publish must be dispatched against a tag, not ${{ github.ref_type }} '${{ github.ref_name }}'. Tag the release commit v$V, then re-dispatch with that tag selected."
+            exit 1
+          fi
+          if [ "${{ github.ref_name }}" != "v$V" ]; then
+            echo "::error::Tag '${{ github.ref_name }}' does not name the version in package.json ($V). Expected v$V."
+            exit 1
+          fi
+          echo "publishing from tag ${{ github.ref_name }}"
+
+      # No "build the atlas dependency" step: unlike in the monorepo, the
+      # committed lockfile resolves @urbankitstudio/atlas from the registry with
+      # an integrity hash, so npm ci installs the published tarball and there is
+      # no workspace sibling to build.
+      - name: Install
+        run: npm ci
+
+      - name: Gate (typecheck, build)
+        run: |
+          npx tsc --noEmit
+          npm run build
+
+      # server.json carries the version twice and the MCP registry reads it from
+      # this repository, so it rots silently: it sat at 0.1.5 while npm served
+      # 0.2.1. Nothing reads server.json at build time, so only an assertion
+      # catches it. Compare, do not generate — a generated file hides the drift
+      # instead of reporting it.
+      - name: server.json agrees with package.json
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TOP=$(node -p "require('./server.json').version")
+          NPMV=$(node -p "require('./server.json').packages[0].version")
+          echo "package.json=$PKG server.json=$TOP packages[0]=$NPMV"
+          if [ "$PKG" != "$TOP" ] || [ "$PKG" != "$NPMV" ]; then
+            echo "::error::server.json is stale: package.json is $PKG but server.json says $TOP / $NPMV. Update both fields in server.json."
+            exit 1
+          fi
+          # The registry proves npm ownership by reading `mcpName` out of the
+          # PUBLISHED package.json and comparing it with server.json's name. A
+          # package without it publishes fine on npm and is then refused by the
+          # registry, which is how 0.1.6 through 0.2.2 all shipped unlistable.
+          MCP_NAME=$(node -p "require('./package.json').mcpName ?? ''")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          echo "mcpName=$MCP_NAME server.json name=$SRV_NAME"
+          if [ "$MCP_NAME" != "$SRV_NAME" ]; then
+            echo "::error::package.json mcpName is '$MCP_NAME' but server.json's name is '$SRV_NAME'. The registry rejects the npm package unless they match; set mcpName in package.json."
+            exit 1
+          fi
+
+      # The registry validates server.json against its schema on submission, and
+      # a rejection there arrives long after a successful npm publish. The two
+      # constraints that actually bite are cheap to assert here: description is
+      # capped at 100 characters, and name must be exactly one slash. Hard-coded
+      # rather than fetched so an unreachable schema host cannot fail a release;
+      # the numbers come from server.schema.json 2025-12-11.
+      - name: server.json satisfies the registry schema's capped fields
+        run: |
+          DESC_LEN=$(node -p "[...require('./server.json').description].length")
+          NAME=$(node -p "require('./server.json').name")
+          echo "description=$DESC_LEN/100 chars  name=$NAME"
+          if [ "$DESC_LEN" -gt 100 ]; then
+            echo "::error::server.json description is $DESC_LEN characters; the registry schema caps it at 100. Shorten it."
+            exit 1
+          fi
+          if ! node -e "process.exit(/^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+\$/.test(require('./server.json').name) ? 0 : 1)"; then
+            echo "::error::server.json name '$NAME' does not match the registry's namespace/name pattern."
+            exit 1
+          fi
+
+      # The server talks JSON-RPC over stdio, so "does it build" is not the same
+      # question as "does it answer". Ask it — with the package's own suite,
+      # which asserts a superset of the monorepo workflow's inline stdio check
+      # (it names each of the four tools rather than counting them, and goes on
+      # to assert real county data, the SQL quoting and the owner-unavailable
+      # refusal).
+      - name: Smoke the built server over stdio
+        run: node test/smoke.mjs
+
+      - name: Verify the tarball before it can go anywhere
+        run: |
+          TARBALL=$(npm pack --silent | tail -1)
+          echo "packed: $TARBALL"
+          mkdir -p /tmp/verify-mcp && tar -xzf "$TARBALL" -C /tmp/verify-mcp
+          cd /tmp/verify-mcp/package
+
+          VERSION=$(node -p "require('./package.json').version")
+          FILES=$(find . -type f | wc -l)
+          echo "version=$VERSION files=$FILES"
+
+          # The bin entry is the whole product — an MCP client launches it by
+          # that path. If it is missing, the package installs and does nothing.
+          BIN=$(node -p "Object.values(require('./package.json').bin || {})[0] || ''")
+          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
+            echo "::error::bin entry '$BIN' is missing from the tarball"
+            exit 1
+          fi
+
+          if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::@urbankitstudio/mcp-atlas@$VERSION is already published. Bump the version first."
+            exit 1
+          fi
+          echo "tarball verified: $VERSION, $FILES files, bin=$BIN"
+
+      # No NODE_AUTH_TOKEN and no npm login: npm mints a short-lived credential
+      # from the OIDC identity granted to this job. A 404 or "not configured for
+      # trusted publishing" here means the Trusted Publisher entry on npmjs.com
+      # does not name THIS repository and THIS filename (publish.yml) exactly.
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        run: npm publish --access public --provenance
+
+      # An assumed attestation is worse than none: it is the whole reason for the
+      # move, and nothing else in this run would notice its absence. Read it back
+      # off the registry. A red here does NOT mean "publish again" — the version
+      # is already live and npm versions are immutable.
+      - name: Provenance actually attached
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          for attempt in 1 2 3; do
+            ATT=$(npm view "@urbankitstudio/mcp-atlas@$V" dist.attestations 2>/dev/null || true)
+            if [ -n "$ATT" ]; then
+              echo "provenance attached: $ATT"
+              exit 0
+            fi
+            echo "attempt $attempt: registry reports no attestation yet; waiting"
+            sleep 15
+          done
+          echo "::error::@urbankitstudio/mcp-atlas@$V is PUBLISHED but npm reports no provenance attestation. Do not re-publish — the version is immutable. Check that this repository is public and that the Trusted Publisher entry names it."
+          exit 1
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            V=$(node -p "require('./package.json').version")
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "### Dry run — nothing published"
+              echo ""
+              echo "Verified the tarball for \`@urbankitstudio/mcp-atlas@$V\`. To publish: tag the release commit \`v$V\`, then dispatch this workflow against that tag with **dry_run unchecked**."
+            else
+              echo "### Published @urbankitstudio/mcp-atlas@$V"
+              echo ""
+              echo "Over OIDC Trusted Publishing from a public repo, with \`--provenance\`."
+              echo "Confirm independently: \`npm view @urbankitstudio/mcp-atlas@$V dist.attestations\`"
+              echo ""
+              echo "> [!IMPORTANT]"
+              echo "> The MCP registry is a separate publish and is NOT automated here."
+              echo "> The listing is \`io.github.LEOyrh/mcp-atlas\`, which a workflow under this owner has no permission to update."
+              echo "> Run locally, signed in as LEOyrh:"
+              echo "> \`mcp-publisher login github && mcp-publisher publish ./server.json\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
