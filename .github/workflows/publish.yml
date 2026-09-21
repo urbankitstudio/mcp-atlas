@@ -54,6 +54,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # A hung job holds a MINTABLE npm publish identity for GitHub's default six
+    # hours. The monorepo workflow this was ported from carries a timeout twice;
+    # dropping it here was a regression, not a simplification.
+    timeout-minutes: 15
     permissions:
       contents: read
       # This is what mints the OIDC identity npm exchanges for a publish
@@ -101,14 +105,43 @@ jobs:
           else
             echo "release=false" >> "$GITHUB_OUTPUT"
           fi
+          # $NEW comes from package.json and is written to GITHUB_OUTPUT, then
+          # read back into a later step. Two things go wrong if it is not a
+          # plain semver: a newline forges additional step outputs, and a
+          # backtick or $( ) becomes shell once the value is interpolated. Check
+          # it here, at the one place it enters the workflow, rather than
+          # escaping it at every point of use.
+          if ! printf '%s' "$NEW" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::package.json version '$NEW' is not a plain semver. Refusing to continue."
+            exit 1
+          fi
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
 
-      # `inputs.dry_run` is UNDEFINED on a push, so `if: ${{ !inputs.dry_run }}`
-      # would evaluate TRUE there. That is the behaviour we want, but by accident
-      # rather than by statement. State it, so nobody "cleans it up" later.
+      # A push to main is a real release, by design -- that is how a merged
+      # version bump ships. A manual dispatch is a REHEARSAL unless dry_run was
+      # explicitly unchecked.
+      #
+      # 🔴 WHICH WAY THIS FAILS IS THE WHOLE POINT. The previous version read
+      # `github.event_name == 'workflow_dispatch' && inputs.dry_run || false`,
+      # which is correct today and fails in the dangerous direction tomorrow: if
+      # the input is ever renamed or removed, `inputs.dry_run` is null, the
+      # whole expression collapses to `false`, and a dispatch that meant to
+      # rehearse PUBLISHES instead. Here anything that is not the exact string
+      # "false" -- including empty -- is a dry run, so the same mistake costs a
+      # wasted run rather than a release.
       - name: Decide dry run
         id: mode
-        run: echo "dry=${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT: ${{ github.event_name }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$DRY_INPUT" = "false" ]; then dry=false; else dry=true; fi
+          else
+            dry=false
+          fi
+          echo "event=$EVENT dry_run input='$DRY_INPUT' -> dry=$dry"
+          echo "dry=$dry" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -116,9 +149,14 @@ jobs:
           node-version: '24.19.0'
           registry-url: 'https://registry.npmjs.org'
 
-      # Pinned to 11, not @latest, so the publish tool cannot move under a
-      # release on its own. Runs on dry runs too: a rehearsal that skips a step
-      # cannot rehearse it.
+      # Bounded to major 11, NOT pinned. `npm@11` is a semver range and
+      # resolves to the newest 11.x at run time, inside the job that holds the
+      # OIDC identity -- so the publish tool does move under a release, it just
+      # cannot cross a major. The earlier comment here claimed it "cannot move
+      # on its own", which is a guarantee this line does not give and someone
+      # could have relied on. An exact pin is the stronger choice and needs a
+      # deliberate soak, so it is a decision rather than a drive-by.
+      # Runs on dry runs too: a rehearsal that skips a step cannot rehearse it.
       - name: Upgrade npm for OIDC publishing
         if: ${{ steps.bump.outputs.release == 'true' }}
         run: |
@@ -261,16 +299,27 @@ jobs:
             fi
           fi
 
+      # Values reach this step through `env:`, never through `${{ }}` inside
+      # `run:`. An expression interpolated into a shell IS shell, and this step
+      # is `if: always()`, so it runs even after every gate has failed -- the
+      # worst place to have a sink. The values are the workflow's own outputs
+      # rather than anything an outsider controls, and the version is semver-
+      # checked at its source above, so this is depth rather than a live hole.
       - name: Report
         if: ${{ always() }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          RELEASE: ${{ steps.bump.outputs.release }}
+          DRY: ${{ steps.mode.outputs.dry }}
+          PUBLISHED: ${{ steps.publish.outputs.published || 'no' }}
         run: |
           {
             echo "### @urbankitstudio/mcp-atlas"
             echo ""
-            echo "- version: \`${{ steps.bump.outputs.version }}\`"
-            echo "- release: \`${{ steps.bump.outputs.release }}\`"
-            echo "- dry run: \`${{ steps.mode.outputs.dry }}\`"
-            echo "- published: \`${{ steps.publish.outputs.published || 'no' }}\`"
+            echo "- version: \`$VERSION\`"
+            echo "- release: \`$RELEASE\`"
+            echo "- dry run: \`$DRY\`"
+            echo "- published: \`$PUBLISHED\`"
             echo ""
             echo "A green run is NOT a publish. Confirm on the registry:"
             echo ""
