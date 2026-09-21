@@ -58,6 +58,18 @@ jobs:
     # hours. The monorepo workflow this was ported from carries a timeout twice;
     # dropping it here was a regression, not a simplification.
     timeout-minutes: 15
+    # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
+    # environment `npm-publish`, so npm now checks the OIDC token for an
+    # `environment` claim carrying that exact name. GitHub only puts that claim
+    # in the token when the JOB declares an environment -- it is not inherited
+    # from the repository, and it is not optional once npm is configured to
+    # expect it. Without this line the token is minted without the claim and
+    # every publish is rejected as unauthorised, which reads like a credential
+    # problem rather than a missing key.
+    #
+    # The environment itself restricts deployments to `main`, so this also means
+    # a publish can only ever run from a ref that branch rule admits.
+    environment: npm-publish
     permissions:
       contents: read
       # This is what mints the OIDC identity npm exchanges for a publish
