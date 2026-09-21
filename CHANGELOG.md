@@ -6,6 +6,27 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.5 — 2026-09-21
+
+No code change. `server.ts` and the four tool schemas are byte-identical to
+0.2.4; this release exists to exercise two publishing changes that cannot be
+verified any other way.
+
+- **Publishing is now bound to a GitHub Environment.** The npm Trusted Publisher
+  entry names the environment `npm-publish`, which is restricted to `main`. npm
+  checks the OIDC token for an `environment` claim carrying that name, and
+  GitHub only mints that claim when the job itself declares the environment —
+  so `publish.yml` now does. The two halves have to land together: npm was
+  configured to expect the claim before the workflow emitted it, which left
+  publishing broken in between. This release proves the pair works.
+- **README**: the Socket score badge moved above the title and onto its own
+  line. npm only refreshes a package's README on publish, so a README-only
+  change is invisible on npmjs.com until a version ships.
+
+0.2.4 was the first release published from this repository rather than the
+private monorepo, over OIDC and with provenance. 0.2.5 is the first published
+under the environment restriction as well.
+
 ## 0.2.4 — 2026-09-20
 
 No code change; `server.ts` and the four tool schemas are unchanged. This
