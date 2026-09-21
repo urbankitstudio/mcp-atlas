@@ -3,11 +3,11 @@
 [![mcp-atlas MCP server](https://glama.ai/mcp/servers/LEOyrh/mcp-atlas/badges/card.svg)](https://glama.ai/mcp/servers/LEOyrh/mcp-atlas)
 [![Socket Badge](https://badge.socket.dev/npm/package/@urbankitstudio/mcp-atlas)](https://socket.dev/npm/package/@urbankitstudio/mcp-atlas)
 
-Query the verified parcel ArcGIS REST endpoints of 171 counties across all 50 US states (174 layers) for owner, APN and address lookup via the Model Context Protocol (MCP).
+Query the verified parcel ArcGIS REST endpoints of 227 counties across all 50 US states (241 layers) for owner, APN and address lookup via the Model Context Protocol (MCP).
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 171 counties across all 50 US states, 174 verified endpoints (atlas 0.6.2).
+**Coverage:** 227 counties across all 50 US states, 241 verified endpoints (atlas 0.6.5).
 
 ---
 
