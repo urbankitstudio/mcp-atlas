@@ -6,6 +6,36 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.4 — 2026-09-20
+
+No code change; `server.ts` and the four tool schemas are unchanged. This
+package bundles no data of its own — it calls into `@urbankitstudio/atlas` at
+runtime — so there is nothing here for Florida's county growth to touch
+directly.
+
+- **Catch-up to atlas 0.6.5**: 171 → 227 counties across all 50 states, 174 →
+  241 verified endpoints. Florida alone grew from 11 to 67 counties. The
+  `description` and `README.md` county counts were already updated to
+  227/241 on `main` as part of the data change that added Florida
+  (urbankitstudio#759); this release is the version bump and republish that
+  actually ships that text and the atlas dependency's now-current data to
+  installs, since editing a manifest on `main` doesn't reach anyone who
+  already `npm install`ed. README's `(atlas 0.6.2)` freshness note is
+  corrected to `(atlas 0.6.5)` — those 227/241 numbers were never true of the
+  real atlas 0.6.2 (which shipped 171/174; see `packages/atlas/CHANGELOG.md`).
+- **`dependencies["@urbankitstudio/atlas"]` floor deliberately left at
+  `^0.6.2`, not raised to `^0.6.5`.** Every prior "catch-up" release raised
+  the floor to the atlas version it was verified against, but each of those
+  atlas versions was already on npm at publish time. This release is prepared
+  in the same change as the atlas 0.6.5 bump, before it is published — so a
+  floor of `^0.6.5` would make `npm install` in this package unresolvable
+  (no matching version) until atlas 0.6.5 actually lands on the registry, in
+  whichever order the two publishes happen. `^0.6.2` already resolves to the
+  newest published 0.6.x for a fresh install, atlas 0.6.4 today and 0.6.5 once
+  it ships, with no further mcp-atlas release required — the same "reaches
+  everyone already installed" property the atlas package's own README
+  documents for its patch releases.
+
 ## 0.2.3 — 2026-09-20
 
 No code change. The package manifest gains the `mcpName` field

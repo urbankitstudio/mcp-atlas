@@ -1,0 +1,138 @@
+# PR-time gate for @urbankitstudio/mcp-atlas.
+#
+# WHY THIS IS NEW RATHER THAN COPIED. While this package lived in the monorepo
+# it had NO pull-request CI at all - `mcp-atlas` appears nowhere in that repo's
+# ci.yml, e2e.yml or deploy.yml. Its only automated gate was the one embedded in
+# the publish workflow, which runs on push-to-main or a manual dispatch and
+# never on a PR. So a change could only be found broken at release time. These
+# steps are the publish workflow's gates, lifted so they run before a merge
+# instead of after.
+#
+# 🔴 `runs-on: ubuntu-latest`, and it must stay a GitHub-hosted runner.
+# `pull_request` workflows must NEVER target a self-hosted runner: a fork PR
+# would then execute untrusted code on that machine with access to its secrets.
+#
+# `permissions: contents: read` and nothing else. This workflow has no reason to
+# hold `id-token: write` - that belongs only to publish.yml, which needs it to
+# mint the OIDC credential npm exchanges. A CI job that can mint a publish
+# identity is a CI job that can publish.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
+          registry-url: 'https://registry.npmjs.org'
+
+      # `npm ci` installs strictly from package-lock.json, which pins
+      # @urbankitstudio/atlas to the registry tarball. There is no workspace
+      # sibling in this repo and none is needed. Verified 2026-09-21 on a clean
+      # clone: atlas 0.6.2 installs as a real directory, not a symlink.
+      #
+      # `npm ci` also fails outright if package.json and package-lock.json have
+      # drifted, which is a gate in itself and the reason not to soften it to
+      # `npm install`.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      # server.json carries the version twice and the MCP registry reads it from
+      # this repo, so it rots silently: it sat at 0.1.5 while npm served 0.2.1.
+      # Nothing reads server.json at build time, so only an assertion catches it.
+      - name: server.json agrees with package.json
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TOP=$(node -p "require('./server.json').version")
+          NPMV=$(node -p "require('./server.json').packages[0].version")
+          echo "package.json=$PKG server.json=$TOP packages[0]=$NPMV"
+          if [ "$PKG" != "$TOP" ] || [ "$PKG" != "$NPMV" ]; then
+            echo "::error::server.json is stale: package.json is $PKG but server.json says $TOP / $NPMV. Update both fields in server.json."
+            exit 1
+          fi
+          # The registry proves npm ownership by reading `mcpName` from the
+          # PUBLISHED package.json and comparing it with server.json's name. A
+          # package without it publishes fine on npm and is then refused by the
+          # registry - which is how 0.1.6 through 0.2.2 all shipped unlistable.
+          MCP_NAME=$(node -p "require('./package.json').mcpName ?? ''")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          echo "mcpName=$MCP_NAME server.json name=$SRV_NAME"
+          if [ "$MCP_NAME" != "$SRV_NAME" ]; then
+            echo "::error::package.json mcpName is '$MCP_NAME' but server.json's name is '$SRV_NAME'. The registry rejects the npm package unless they match."
+            exit 1
+          fi
+
+      - name: server.json satisfies the registry schema's capped fields
+        run: |
+          DESC_LEN=$(node -p "[...require('./server.json').description].length")
+          NAME=$(node -p "require('./server.json').name")
+          echo "description=$DESC_LEN/100 chars  name=$NAME"
+          if [ "$DESC_LEN" -gt 100 ]; then
+            echo "::error::server.json description is $DESC_LEN characters; the registry schema caps it at 100."
+            exit 1
+          fi
+          if ! node -e "process.exit(/^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+\$/.test(require('./server.json').name) ? 0 : 1)"; then
+            echo "::error::server.json name '$NAME' does not match the registry's namespace/name pattern."
+            exit 1
+          fi
+
+      # "Does it build" is not "does it answer". The server speaks JSON-RPC over
+      # stdio, so drive it. test/smoke.mjs also asserts the SQL-quote escaping in
+      # build_owner_query, and that Oakland County MI is REFUSED rather than
+      # handed a dud query for an owner field it does not publish.
+      - name: Smoke the built server over stdio
+        run: npm run smoke
+
+      # The bin entry is the whole product: an MCP client launches the package by
+      # that path. If it is missing from the tarball, the package installs and
+      # does nothing - and that is only visible in what npm pack actually emits,
+      # not in the source tree.
+      - name: The tarball carries its bin
+        run: |
+          TARBALL=$(npm pack --silent | tail -1)
+          mkdir -p /tmp/verify-mcp && tar -xzf "$TARBALL" -C /tmp/verify-mcp
+          cd /tmp/verify-mcp/package
+          VERSION=$(node -p "require('./package.json').version")
+          FILES=$(find . -type f | wc -l)
+          BIN=$(node -p "Object.values(require('./package.json').bin || {})[0] || ''")
+          echo "version=$VERSION files=$FILES bin=$BIN"
+          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
+            echo "::error::bin entry '$BIN' is missing from the tarball"
+            exit 1
+          fi
+          echo "tarball ok: $VERSION, $FILES files, bin=$BIN"
+
+      - name: Report
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### mcp-atlas CI"
+            echo ""
+            echo "- version: \`$(node -p "require('$GITHUB_WORKSPACE/package.json').version")\`"
+            echo "- gates: install, typecheck, build, server.json consistency, registry schema caps, stdio smoke, tarball bin"
+          } >> "$GITHUB_STEP_SUMMARY"

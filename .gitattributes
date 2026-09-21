@@ -1,0 +1,14 @@
+# Every text file is stored and checked out with LF endings.
+#
+# This is not cosmetic. The workflows in .github/workflows run on ubuntu-latest,
+# and a CR at the end of a line inside a `run:` block reaches bash as part of the
+# command: a trailing \r turns `exit 1` into `exit 1\r` and the step fails with
+# `$'\r': command not found`, which names nothing about the actual logic.
+#
+# Today the blobs are LF only because the machine that wrote them happened to
+# have core.autocrlf=true. That is a property of one developer's global config,
+# not of this repository, and the next person to clone with autocrlf=false on
+# Windows would commit CRLF into publish.yml without a warning. This file makes
+# the guarantee belong to the repo. It matches the monorepo this package was
+# split out of, which has carried `* text=auto eol=lf` throughout.
+* text=auto eol=lf

@@ -1,0 +1,331 @@
+# Publish @urbankitstudio/mcp-atlas to npm over OIDC Trusted Publishing.
+#
+# 🔴 THE FILENAME OF THIS FILE IS LOAD-BEARING. npm's Trusted Publisher entry
+# names a repository AND a workflow filename, and it matches BOTH exactly. If
+# the entry says `publish.yaml` and this file is `publish.yml`, every publish
+# fails at the OIDC exchange with:
+#
+#     npm error code E404
+#     npm error 404 Not Found - PUT https://registry.npmjs.org/@urbankitstudio%2fmcp-atlas
+#
+# npm returns 404 rather than 403 for an unauthorised OIDC publish, so that
+# error looks like a missing package and is not one. Renaming this file without
+# also editing the entry on npmjs.com breaks publishing silently until someone
+# tries to release.
+#
+# Read the entry with `npm trust list @urbankitstudio/mcp-atlas`, and set it
+# with `npm trust github @urbankitstudio/mcp-atlas --repo urbankitstudio/mcp-atlas
+# --file publish.yml --allow-publish`. Both need an interactive 2FA challenge on
+# the first call.
+#
+# WHY THIS REPO AND NOT THE MONOREPO. This package used to publish from
+# urbankitstudio/urbankitstudio via `publish-mcp-atlas-package.yml`. Publishing
+# from a PUBLIC repo is the point of the move: npm attaches a provenance
+# attestation automatically on an OIDC publish from a public repository, which
+# is impossible from a private one. Do not point the entry back at the monorepo
+# without deleting this file, or two workflows can both claim to publish.
+#
+# NO NODE_AUTH_TOKEN ANYWHERE. npm mints a short-lived credential from the OIDC
+# identity minted by `permissions: id-token: write` below. There is no npm token
+# in this repo's secrets and there must not be one.
+
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run every gate but do not publish'
+        type: boolean
+        # 🔴 DEFAULTS TO TRUE. A dispatch without `-f dry_run=false` is a
+        # rehearsal: it publishes nothing and still concludes green. A green run
+        # is NOT a publish. The registry is the only proof.
+        default: true
+
+concurrency:
+  group: publish-mcp-atlas
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # A hung job holds a MINTABLE npm publish identity for GitHub's default six
+    # hours. The monorepo workflow this was ported from carries a timeout twice;
+    # dropping it here was a regression, not a simplification.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # This is what mints the OIDC identity npm exchanges for a publish
+      # credential. Without it the publish fails as if unauthorised.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # A push that did not move the version is not a release. Stop here rather
+      # than running the whole gate only to fail on "already published".
+      - name: Did this push change the version?
+        id: bump
+        run: |
+          NEW=$(node -p "require('./package.json').version")
+          # The state of main BEFORE this push, not "one commit before the tip".
+          # They are the same for a squash merge and different for any push
+          # landing several commits, where HEAD~1 would already carry the bump
+          # and the release would be skipped in silence.
+          BASE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != "push" ] \
+             || [ -z "$BASE" ] \
+             || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # No push baseline exists (a dispatch, or a first push). Do NOT fall
+            # through to `git show :path`, which is not an error - it means
+            # index stage 0 and would hand back the current file.
+            OLD="none"
+          else
+            OLD=$(git show "$BASE:package.json" 2>/dev/null \
+                  | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "none")
+          fi
+          echo "old=$OLD new=$NEW"
+          if [ "$OLD" = "$NEW" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "version unchanged at $NEW - not a release" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          # Whether the run should behave as a release at all. A dispatch always
+          # should, including a re-dispatch at an unchanged version for recovery,
+          # which is why this is not just `changed`.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$OLD" != "$NEW" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          # $NEW comes from package.json and is written to GITHUB_OUTPUT, then
+          # read back into a later step. Two things go wrong if it is not a
+          # plain semver: a newline forges additional step outputs, and a
+          # backtick or $( ) becomes shell once the value is interpolated. Check
+          # it here, at the one place it enters the workflow, rather than
+          # escaping it at every point of use.
+          if ! printf '%s' "$NEW" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::package.json version '$NEW' is not a plain semver. Refusing to continue."
+            exit 1
+          fi
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+
+      # A push to main is a real release, by design -- that is how a merged
+      # version bump ships. A manual dispatch is a REHEARSAL unless dry_run was
+      # explicitly unchecked.
+      #
+      # 🔴 WHICH WAY THIS FAILS IS THE WHOLE POINT. The previous version read
+      # `github.event_name == 'workflow_dispatch' && inputs.dry_run || false`,
+      # which is correct today and fails in the dangerous direction tomorrow: if
+      # the input is ever renamed or removed, `inputs.dry_run` is null, the
+      # whole expression collapses to `false`, and a dispatch that meant to
+      # rehearse PUBLISHES instead. Here anything that is not the exact string
+      # "false" -- including empty -- is a dry run, so the same mistake costs a
+      # wasted run rather than a release.
+      - name: Decide dry run
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$DRY_INPUT" = "false" ]; then dry=false; else dry=true; fi
+          else
+            dry=false
+          fi
+          echo "event=$EVENT dry_run input='$DRY_INPUT' -> dry=$dry"
+          echo "dry=$dry" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Bounded to major 11, NOT pinned. `npm@11` is a semver range and
+      # resolves to the newest 11.x at run time, inside the job that holds the
+      # OIDC identity -- so the publish tool does move under a release, it just
+      # cannot cross a major. The earlier comment here claimed it "cannot move
+      # on its own", which is a guarantee this line does not give and someone
+      # could have relied on. An exact pin is the stronger choice and needs a
+      # deliberate soak, so it is a decision rather than a drive-by.
+      # Runs on dry runs too: a rehearsal that skips a step cannot rehearse it.
+      - name: Upgrade npm for OIDC publishing
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: |
+          npm install -g npm@11
+          echo "npm $(npm --version)"
+
+      # NOTE for anyone porting this back or comparing it with the monorepo
+      # workflow it came from: that one carries a "Build the atlas dependency it
+      # links against" step, on the premise that @urbankitstudio/atlas resolves
+      # to a workspace sibling. It does not resolve that way here and there is no
+      # sibling to build. Verified rather than assumed, 2026-09-21: a clean
+      # `npm ci` in this repo installs @urbankitstudio/atlas 0.6.2 from the
+      # registry as a real directory, not a symlink, because package-lock.json
+      # pins `resolved` to the registry tarball. The monorepo is also not an npm
+      # workspaces repo - its root package.json declares no `workspaces` key.
+      - name: Install
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: npm ci
+
+      - name: Gate (typecheck, build)
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: |
+          npx tsc --noEmit
+          npm run build
+
+      # server.json carries the version twice and the MCP registry reads it from
+      # this repo, so it rots silently: it sat at 0.1.5 while npm served 0.2.1.
+      # Nothing reads server.json at build time, so only an assertion catches it.
+      # Compare, do not generate - a generated file hides the drift instead of
+      # reporting it.
+      - name: server.json agrees with package.json
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TOP=$(node -p "require('./server.json').version")
+          NPMV=$(node -p "require('./server.json').packages[0].version")
+          echo "package.json=$PKG server.json=$TOP packages[0]=$NPMV"
+          if [ "$PKG" != "$TOP" ] || [ "$PKG" != "$NPMV" ]; then
+            echo "::error::server.json is stale: package.json is $PKG but server.json says $TOP / $NPMV. Update both fields in server.json."
+            exit 1
+          fi
+          # The registry proves npm ownership by reading `mcpName` out of the
+          # PUBLISHED package.json and comparing it with server.json's name. A
+          # package without it publishes fine on npm and is then refused by the
+          # registry, which is how 0.1.6 through 0.2.2 all shipped unlistable.
+          MCP_NAME=$(node -p "require('./package.json').mcpName ?? ''")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          echo "mcpName=$MCP_NAME server.json name=$SRV_NAME"
+          if [ "$MCP_NAME" != "$SRV_NAME" ]; then
+            echo "::error::package.json mcpName is '$MCP_NAME' but server.json's name is '$SRV_NAME'. The registry rejects the npm package unless they match; set mcpName in package.json."
+            exit 1
+          fi
+
+      # The registry validates server.json against its schema on submission, and
+      # a rejection there arrives long after a successful npm publish. The two
+      # constraints that actually bite are cheap to assert here: description is
+      # capped at 100 characters, and name must be exactly one slash. Hard-coded
+      # rather than fetched so an unreachable schema host cannot fail a release;
+      # the numbers come from server.schema.json 2025-12-11.
+      - name: server.json satisfies the registry schema's capped fields
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: |
+          DESC_LEN=$(node -p "[...require('./server.json').description].length")
+          NAME=$(node -p "require('./server.json').name")
+          echo "description=$DESC_LEN/100 chars  name=$NAME"
+          if [ "$DESC_LEN" -gt 100 ]; then
+            echo "::error::server.json description is $DESC_LEN characters; the registry schema caps it at 100. Shorten it."
+            exit 1
+          fi
+          if ! node -e "process.exit(/^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+\$/.test(require('./server.json').name) ? 0 : 1)"; then
+            echo "::error::server.json name '$NAME' does not match the registry's namespace/name pattern."
+            exit 1
+          fi
+
+      # The server talks JSON-RPC over stdio, so "does it build" is not the same
+      # question as "does it answer". Ask it. This runs the repo's own
+      # test/smoke.mjs rather than an inline probe, because that file asserts
+      # things an inline probe cannot: the SQL-quote escaping in
+      # build_owner_query, and that Oakland County MI is REFUSED rather than
+      # handed a dud query for an owner field it does not publish.
+      - name: Smoke the built server over stdio
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: npm run smoke
+
+      - name: Verify the tarball before it can go anywhere
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: |
+          TARBALL=$(npm pack --silent | tail -1)
+          echo "packed: $TARBALL"
+          mkdir -p /tmp/verify-mcp && tar -xzf "$TARBALL" -C /tmp/verify-mcp
+          cd /tmp/verify-mcp/package
+
+          VERSION=$(node -p "require('./package.json').version")
+          FILES=$(find . -type f | wc -l)
+          echo "version=$VERSION files=$FILES"
+
+          # The bin entry is the whole product - an MCP client launches it by
+          # that path. If it is missing, the package installs and does nothing.
+          BIN=$(node -p "Object.values(require('./package.json').bin || {})[0] || ''")
+          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
+            echo "::error::bin entry '$BIN' is missing from the tarball"
+            exit 1
+          fi
+
+          # Only on a real publish. A dry run at an already-published version is
+          # a legitimate rehearsal, and failing it would make the rehearsal
+          # useless exactly when you most want one.
+          if [ "${{ steps.mode.outputs.dry }}" != "true" ]; then
+            if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1; then
+              echo "::error::@urbankitstudio/mcp-atlas@$VERSION is already published. Bump the version first."
+              exit 1
+            fi
+          fi
+          echo "tarball verified: $VERSION, $FILES files, bin=$BIN"
+
+      # No NODE_AUTH_TOKEN: npm mints a short-lived credential from the OIDC
+      # identity above. A 404 or "not configured for trusted publishing" here
+      # means the Trusted Publisher entry on npmjs.com does not name THIS repo
+      # and THIS filename exactly. See the header.
+      - name: Publish
+        id: publish
+        # A dispatch runs against whatever ref it was dispatched on, so without
+        # the ref check, dispatching a feature branch with dry_run unchecked
+        # publishes unmerged work to npm.
+        if: ${{ steps.mode.outputs.dry != 'true' && steps.bump.outputs.release == 'true'
+            && github.ref == 'refs/heads/main' }}
+        run: |
+          # Idempotent on purpose, so a re-run after a downstream failure is not
+          # refused just because the version already landed.
+          if npm publish --access public; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1; then
+              echo "::warning::$VERSION is already on the registry; treating this publish as already done."
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::publish failed and $VERSION is NOT on the registry."
+              exit 1
+            fi
+          fi
+
+      # Values reach this step through `env:`, never through `${{ }}` inside
+      # `run:`. An expression interpolated into a shell IS shell, and this step
+      # is `if: always()`, so it runs even after every gate has failed -- the
+      # worst place to have a sink. The values are the workflow's own outputs
+      # rather than anything an outsider controls, and the version is semver-
+      # checked at its source above, so this is depth rather than a live hole.
+      - name: Report
+        if: ${{ always() }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          RELEASE: ${{ steps.bump.outputs.release }}
+          DRY: ${{ steps.mode.outputs.dry }}
+          PUBLISHED: ${{ steps.publish.outputs.published || 'no' }}
+        run: |
+          {
+            echo "### @urbankitstudio/mcp-atlas"
+            echo ""
+            echo "- version: \`$VERSION\`"
+            echo "- release: \`$RELEASE\`"
+            echo "- dry run: \`$DRY\`"
+            echo "- published: \`$PUBLISHED\`"
+            echo ""
+            echo "A green run is NOT a publish. Confirm on the registry:"
+            echo ""
+            echo '```'
+            echo "npm view @urbankitstudio/mcp-atlas version"
+            echo '```'
+            echo ""
+            echo "npm's \`/latest\` has lagged a concluded run by ~80 seconds before, so an immediate read is not evidence of failure."
+          } >> "$GITHUB_STEP_SUMMARY"
