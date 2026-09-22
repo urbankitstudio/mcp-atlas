@@ -32,6 +32,14 @@ concurrency:
 permissions:
   contents: read
 
+# GitHub's DEFAULT shell for `run:` on Linux is `bash -e {0}` -- WITHOUT
+# pipefail. Naming bash explicitly gets `bash --noprofile --norc -eo pipefail
+# {0}`. It matters below: `npm pack --silent | tail -1` would otherwise swallow
+# a pack failure and hand the next step an empty filename.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -75,17 +83,10 @@ jobs:
             echo "::error::server.json is stale: package.json is $PKG but server.json says $TOP / $NPMV. Update both fields in server.json."
             exit 1
           fi
-          # The registry proves npm ownership by reading `mcpName` from the
-          # PUBLISHED package.json and comparing it with server.json's name. A
-          # package without it publishes fine on npm and is then refused by the
-          # registry - which is how 0.1.6 through 0.2.2 all shipped unlistable.
-          MCP_NAME=$(node -p "require('./package.json').mcpName ?? ''")
-          SRV_NAME=$(node -p "require('./server.json').name")
-          echo "mcpName=$MCP_NAME server.json name=$SRV_NAME"
-          if [ "$MCP_NAME" != "$SRV_NAME" ]; then
-            echo "::error::package.json mcpName is '$MCP_NAME' but server.json's name is '$SRV_NAME'. The registry rejects the npm package unless they match."
-            exit 1
-          fi
+          # The `mcpName` half of this check moved into verify-package.mjs,
+          # which reads it from the PACKAGED package.json rather than the
+          # working tree. The registry reads what shipped, so that is what
+          # should be checked.
 
       - name: server.json satisfies the registry schema's capped fields
         run: |
@@ -108,24 +109,23 @@ jobs:
       - name: Smoke the built server over stdio
         run: npm run smoke
 
-      # The bin entry is the whole product: an MCP client launches the package by
-      # that path. If it is missing from the tarball, the package installs and
-      # does nothing - and that is only visible in what npm pack actually emits,
-      # not in the source tree.
-      - name: The tarball carries its bin
+      # Against the EXTRACTED TARBALL, never the working tree: `files` in
+      # package.json decides what ships, and the working tree does not.
+      #
+      # 🔴 THE CHECKS LIVE IN A SCRIPT BECAUSE THIS WORKFLOW CANNOT STOP A
+      # PUBLISH. It and publish.yml trigger independently on a push to main with
+      # no `needs:` between them, so a red run here does not block a release.
+      # While each file carried its own copy of the package checks they drifted,
+      # and the only gate that could actually block a publish was the weaker
+      # one. Both now call `scripts/verify-package.mjs` -- one implementation,
+      # two callers.
+      - name: Verify the package that would ship
         run: |
           TARBALL=$(npm pack --silent | tail -1)
-          mkdir -p /tmp/verify-mcp && tar -xzf "$TARBALL" -C /tmp/verify-mcp
-          cd /tmp/verify-mcp/package
-          VERSION=$(node -p "require('./package.json').version")
-          FILES=$(find . -type f | wc -l)
-          BIN=$(node -p "Object.values(require('./package.json').bin || {})[0] || ''")
-          echo "version=$VERSION files=$FILES bin=$BIN"
-          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
-            echo "::error::bin entry '$BIN' is missing from the tarball"
-            exit 1
-          fi
-          echo "tarball ok: $VERSION, $FILES files, bin=$BIN"
+          echo "packed: $TARBALL"
+          mkdir -p /tmp/verify-mcp
+          tar -xzf "$TARBALL" -C /tmp/verify-mcp
+          node scripts/verify-package.mjs /tmp/verify-mcp/package "$PWD"
 
       - name: Report
         if: ${{ always() }}
