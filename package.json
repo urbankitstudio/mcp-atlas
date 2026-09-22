@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@urbankitstudio/atlas": "^0.6.2"
+    "@urbankitstudio/atlas": "^0.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
