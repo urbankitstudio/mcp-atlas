@@ -1,0 +1,67 @@
+# Goes red when npm serves a newer @urbankitstudio/atlas than package-lock.json
+# pins: the signal that this server owes a dependency bump and a release.
+#
+# WHY IT EXISTS. Leo's agent-first order (2026-09-26): whenever the atlas ships
+# counties, tools or fixes, the npm and MCP packages are updated first. This
+# server is one of them, and nothing told anyone when it fell behind: atlas
+# 0.6.6 to 0.6.8 shipped while the lockfile stayed at 0.6.5. The fact this
+# check needs lives on npm, so no hermetic test in this repo can catch the lag.
+# This workflow looks outward on a schedule, modelled on the UKS repo's
+# advertised-version-drift.yml. scripts/check-atlas-currency.mjs explains why
+# the lockfile, not the published range, is the version compared.
+#
+# WHY NOT ON PUSH OR PULL REQUEST. It needs the network, and a network flake
+# must never become a required check: a check that fails on a DNS hiccup is a
+# check people learn to re-run without reading. Scheduled and dispatched only.
+#
+# A SCHEDULE CAN STOP SILENTLY. GitHub runs it from the default branch only,
+# disables it in a public repo after 60 days without repository activity, and
+# sends failure notices to whoever last changed the cron line. A commit that
+# changes the cron line re-enables a disabled schedule. If this never runs,
+# look for a disabled workflow under Actions before assuming the file is wrong.
+
+name: Atlas currency
+
+on:
+  schedule:
+    # Daily 07:10 UTC: clear of the top of the hour, when GitHub delays
+    # schedules, and of the UKS repo's 06:25 and 06:40 UTC jobs.
+    - cron: '10 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: atlas-currency
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  currency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
+
+      # No `npm ci`: the checker and its tests use only node builtins and global
+      # fetch, so no dependency can break them.
+      #
+      # The tests come first and need no network. A checker whose comparison
+      # broke could otherwise report "current" on every run, and a green
+      # schedule would be the only thing anyone saw.
+      - name: Test the checker
+        run: node --test test/atlas-currency.test.mjs
+
+      - name: Compare the lockfile's atlas with npm's latest
+        run: node scripts/check-atlas-currency.mjs
