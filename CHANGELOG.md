@@ -6,6 +6,49 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.6 — 2026-09-26
+
+Catch-up to atlas 0.6.9: 227 → 235 counties, 241 → 247 endpoints, across a
+`totals.states` count that moves from 50 to 51 because 0.6.9 adds the
+District of Columbia as its own entry (1 county, 1 endpoint) in atlas's
+`states` array. `README.md`, `package.json`'s `description` and
+`server.json`'s `description` are rewritten to these numbers, phrased as
+"51 US states (50 states plus DC)" so the digit `verify-package.mjs` reads
+immediately before "US states" is 51 — the raw `totals.states` value —
+without the text itself claiming DC is a 51st state rather than the 51st
+entry.
+
+- **`dependencies["@urbankitstudio/atlas"]` raised from `^0.6.5` to `^0.6.9`.**
+  Unlike the 0.2.4 catch-up, atlas 0.6.9 was already on npm at publish time,
+  so there is no ordering hazard in raising the floor to match it directly.
+- **Coverage wording moved from "layers" to "endpoints"** in both manifest
+  descriptions and the README's intro line, to match the field name atlas's
+  own `data/index.json` uses (`totals.endpoints`) and the wording atlas's own
+  README and npm description already use ("247 verified endpoints"). The
+  README's Coverage line already said "endpoints"; only the intro line and
+  the two manifest descriptions said "layers". `verify-package.mjs`'s regex
+  accepts either word, so this is a consistency choice, not a compliance fix.
+- **What atlas 0.6.6 through 0.6.9 actually changed**, reconstructed from
+  `npm view @urbankitstudio/atlas@<version> description` for each version in
+  turn, since the published atlas package carries no `CHANGELOG.md` of its
+  own:
+  - 0.6.6 — no change in the advertised counts (227 counties / 241
+    endpoints); nothing here shows what changed.
+  - 0.6.7 — 227 → 233 counties, 241 → 245 endpoints.
+  - 0.6.8 — 233 → 234 counties, 245 → 246 endpoints.
+  - 0.6.9 — 234 → 235 counties, 246 → 247 endpoints, and the description
+    text itself changes from "all 50 US states" to "all 50 US states and
+    DC" — this is the DC release.
+- **Why this release exists**: a `npx -y @urbankitstudio/mcp-atlas` stdio
+  user's tooling keeps reusing its cached install, atlas included, for as
+  long as this package's own published version does not change — regardless
+  of how far `@urbankitstudio/atlas` itself has moved on npm in the meantime.
+  `npm run test:currency` (`scripts/check-atlas-currency.mjs`) is the one
+  gate that looks outward at npm rather than at this repo, and it was red
+  going into this release: package-lock.json pinned atlas 0.6.5 while npm
+  already served 0.6.9. This version bump, dependency bump and lockfile
+  update are what turn it green again.
+
 ## 0.2.5 — 2026-09-21
 
 No code change. `server.ts` and the four tool schemas are byte-identical to
