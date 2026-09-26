@@ -42,6 +42,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "smoke": "node test/smoke.mjs",
+    "test:currency": "node --test test/atlas-currency.test.mjs",
     "prepublishOnly": "npm run typecheck && npm run build && npm run smoke"
   },
   "dependencies": {
