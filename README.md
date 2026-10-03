@@ -148,7 +148,8 @@ The only tool that searches for a named owner. Fills a person or company name
 into the county's verified owner/taxpayer field as
 `UPPER(field) LIKE UPPER('%NAME%')`, a case-insensitive partial match, and
 returns a URL you can fetch or open. On a shared statewide or regional layer
-(Florida's FDOR cadastral, Connecticut's regional composites) the county's scope predicate is ANDed in front, as
+(Connecticut's regional composites, for example) the county's scope predicate
+is ANDed in front, as
 `(scope) AND UPPER(field) LIKE …`, so only that county's rows come back.
 
 An endpoint is refused, with the reason, rather than handed a query that finds

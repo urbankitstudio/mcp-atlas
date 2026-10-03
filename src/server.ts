@@ -55,6 +55,9 @@ function ownerLine(owner: OwnerSearchPolicy): string {
   if (owner.kind === "attribute_search_unsupported") {
     return `Attribute search: not offered (location queries only) - ${owner.reason}`;
   }
+  if (owner.kind === "owner_unsearchable") {
+    return "Owner field: not searchable by name (column exists; use a parcel-id or location query)";
+  }
   return owner.reason
     ? `Owner field: NOT AVAILABLE - ${owner.reason}`
     : "Owner field: NONE - this layer publishes no owner column";

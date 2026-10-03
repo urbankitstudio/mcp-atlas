@@ -40,7 +40,10 @@ import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
  * declared by @urbankitstudio/atlas from 0.6.11; delete this local declaration
  * when the dependency bumps. The bundled 0.6.9 JSON already carries both, the
  * 0.6.9 types do not. If 0.6.11 widens `attributeSearch` beyond "unsupported",
- * passing an EndpointRecord here stops compiling, which is the cue to delete it.
+ * or declares `scopeWhere` nullable (`string | null`), passing an
+ * EndpointRecord here stops compiling with TS2345 at the bump (a review
+ * proved the nullable case). That error is the intended cue to delete this
+ * local type and read the package's own declaration.
  */
 export type EndpointSearchPolicyFields = Pick<EndpointRecord, "searchFields"> & {
   scopeWhere?: string;

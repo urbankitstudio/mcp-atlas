@@ -264,6 +264,18 @@ async function run() {
     "build_owner_query refuses Orleans' unsearchable owner column and points to a parcel-id or location query",
   );
 
+  // The shared Owner line (get_parcel_endpoint, find_county) must say the same.
+  sendMessage(proc, 13, "tools/call", {
+    name: "get_parcel_endpoint",
+    arguments: { state: "LA", county: "Orleans Parish" },
+  });
+  const orleansEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    orleansEndpoint.includes("Owner field: not searchable by name (column exists; use a parcel-id or location query)") &&
+      !orleansEndpoint.includes("NOT AVAILABLE"),
+    "get_parcel_endpoint says Orleans' owner column exists but is not searchable by name",
+  );
+
   // Cleanup
   proc.stdin.end();
   proc.kill();
