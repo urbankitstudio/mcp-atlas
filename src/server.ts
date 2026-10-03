@@ -322,7 +322,7 @@ server.registerTool(
   {
     title: "Get one county's parcel endpoint record",
     description:
-      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field, a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
+      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
     inputSchema: {
       state: z
         .string()
@@ -442,7 +442,7 @@ server.registerTool(
   {
     title: "Build an owner-name search URL for one county",
     description:
-      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. Counties that publish no owner name are refused here with that reason.",
+      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
     inputSchema: {
       state: z
         .string()
@@ -501,13 +501,22 @@ server.registerTool(
         // rows forever, or one that hangs. The caller can then choose a
         // different county or query instead of concluding the owner is absent.
         const place = `${countyRecord.county}, ${countyRecord.stateName}`;
-        results.push(
-          owner.kind === "attribute_search_unsupported"
-            ? `Endpoint: ${ep.url}\nOWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`
-            : owner.reason
-              ? `Endpoint: ${ep.url}\nOWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`
-              : `Endpoint: ${ep.url}\nNote: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.`
-        );
+        let refusal: string;
+        switch (owner.kind) {
+          case "attribute_search_unsupported":
+            refusal = `OWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`;
+            break;
+          case "owner_unsearchable":
+            // The owner IS published; only a name search on it is unsupported.
+            refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nUse a parcel-id or location query instead; either returns the owner of the matching parcel.`;
+            break;
+          case "reviewed_unservable":
+            refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
+            break;
+          default:
+            refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
+        }
+        results.push(`Endpoint: ${ep.url}\n${refusal}`);
         continue;
       }
 

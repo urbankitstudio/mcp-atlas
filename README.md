@@ -96,6 +96,16 @@ IL | DuPage               | dupage-county            | owner+APN
 ...
 ```
 
+What each Coverage label promises:
+
+| Label | Meaning |
+|-------|---------|
+| `owner+APN` | `build_owner_query` returns a URL for at least one endpoint |
+| `APN only (county publishes no owner name)` | A reviewed record says the county serves no usable owner name |
+| `location queries only` | No endpoint answers attribute searches; parcels are reached by geometry, which also returns owner fields |
+| `APN only (owner column not searchable)` | An owner column exists but the county marks it unsearchable by name; a parcel-id or location query returns it |
+| `APN only` | No endpoint documents an owner column |
+
 ---
 
 ### `find_county`
@@ -117,8 +127,10 @@ endpoint URLs, searchable field names, owner field, sample query, license.
 ### `get_parcel_endpoint`
 
 The default lookup once the county is known. Returns the full ArcGIS REST URL,
-layer index, searchable fields, owner field, a generic sample `?where=…&f=json`
-query and the UrbanKit deep-link for one county. For a named owner, use
+layer index, searchable fields, owner field (or why no owner query is offered),
+the county's `Scope:` predicate when the layer is shared statewide or
+regionally, a generic sample `?where=…&f=json` query and the UrbanKit deep-link
+for one county. For a named owner, use
 `build_owner_query` rather than editing the sample query by hand.
 
 | Parameter | Type | Required | Description |
@@ -135,8 +147,16 @@ query and the UrbanKit deep-link for one county. For a named owner, use
 The only tool that searches for a named owner. Fills a person or company name
 into the county's verified owner/taxpayer field as
 `UPPER(field) LIKE UPPER('%NAME%')`, a case-insensitive partial match, and
-returns a URL you can fetch or open. A county that publishes no owner name is
-refused here, with the reason, rather than handed a query that finds nothing.
+returns a URL you can fetch or open. On a shared statewide or regional layer
+(Florida's FDOR cadastral, Connecticut's regional composites) the county's scope predicate is ANDed in front, as
+`(scope) AND UPPER(field) LIKE …`, so only that county's rows come back.
+
+An endpoint is refused, with the reason, rather than handed a query that finds
+nothing or hangs:
+
+- a reviewed record says the county publishes no usable owner name;
+- the layer serves no attribute search at all (query it by location instead);
+- the owner column is not searchable by name (use a parcel-id or location query).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

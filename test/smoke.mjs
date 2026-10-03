@@ -252,6 +252,18 @@ async function run() {
   // The URL is built separately from the printed clause; check both carry it.
   assert(arQuery.includes("?where=(countyfips%20%3D"), "build_owner_query's URL carries Pulaski's scope too");
 
+  // Orleans publishes owner names but marks OWNERNME1 unsearchable (a column
+  // scan takes ~44 s). The refusal must not claim the owner is unavailable.
+  sendMessage(proc, 12, "tools/call", {
+    name: "build_owner_query",
+    arguments: { state: "LA", county: "Orleans Parish", owner_name: "SMITH" },
+  });
+  const orleansQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    orleansQuery.includes("OWNER COLUMN NOT SEARCHABLE BY NAME") && orleansQuery.includes("parcel-id or location query"),
+    "build_owner_query refuses Orleans' unsearchable owner column and points to a parcel-id or location query",
+  );
+
   // Cleanup
   proc.stdin.end();
   proc.kill();

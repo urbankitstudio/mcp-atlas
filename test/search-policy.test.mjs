@@ -120,6 +120,27 @@ test("synthetic: attributeSearch unsupported refuses even a searchable owner col
   assert.equal(p.field, null);
 });
 
+test("synthetic: a reviewed not_published owner outranks attributeSearch unsupported (branch order)", () => {
+  // An FDOR-style endpoint on a county whose owner name a reviewed record withholds.
+  // The reviewed fact is about the COUNTY's data, so it must be what the caller hears.
+  const note = "Reviewed: this county withholds owner names on every public layer.";
+  const reviewedCounty = {
+    capabilityOverrides: {
+      owner_name: { status: "not_published", basis: { type: "county_policy", note } },
+    },
+    endpoints: [{
+      scopeWhere: "CO_NO=99",
+      attributeSearch: "unsupported",
+      searchFields: [{ name: "OWN_NAME", label: "Owner Name", searchable: true }],
+    }],
+  };
+  const p = ownerSearchPolicy(reviewedCounty, reviewedCounty.endpoints[0]);
+  assert.equal(p.kind, "reviewed_unservable");
+  assert.equal(p.reason, note);
+  assert.equal(p.scopeWhere, "CO_NO=99");
+  assert.equal(ownerCoverageLabel(reviewedCounty), "APN only (county publishes no owner name)");
+});
+
 test("synthetic: a scoped layer's WHERE begins with the scope in parentheses", () => {
   const p = ownerSearchPolicy({}, {
     scopeWhere: "COUNTY='ESSEX'",

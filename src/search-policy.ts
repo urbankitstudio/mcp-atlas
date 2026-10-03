@@ -15,11 +15,13 @@
  *      anything the field list implies.
  *   2. attribute_search_unsupported: the registry marks the layer
  *      `attributeSearch: "unsupported"`. It cannot answer a `where` on any
- *      column (Florida's FDOR statewide layer; Orleans Parish, where a column
- *      scan takes ~44 s). Owner and address values still come back from
+ *      column. In atlas 0.6.9 all 67 such endpoints are Florida's FDOR
+ *      statewide layer. Owner and address values still come back from
  *      location queries, so the reason says that instead of "no owner".
  *   3. owner_unsearchable: an owner-name column exists but the county marks
- *      every such column `searchable: false`. A query on it hangs or errors.
+ *      every such column `searchable: false`. A query on it hangs or errors
+ *      (Orleans Parish OWNERNME1, where a column scan takes ~44 s). The owner
+ *      is still returned by a parcel-id or location query.
  *   4. offered: the first owner-name column that is searchable (the column
  *      test is the UKS classifier's; see OWNER_RE below).
  *   5. no_owner_column: the layer documents no owner column at all.
