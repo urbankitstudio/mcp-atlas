@@ -6,6 +6,15 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.8 — 2026-10-04
+
+Dependency catch-up to atlas 0.6.12 (239 → 241 counties, 251 → 253
+endpoints): Mille Lacs County MN (owner search on TAXPAYER_NAME) and St. Louis
+city MO (an independent city, distinct from St. Louis County; the first atlas
+record with `corsEnabled: false`, so it is server-side only, which this server
+is). No code changes. `README.md`, `package.json`'s `description` and
+`server.json`'s `description` carry the new counts.
+
 ## 0.2.7 — 2026-10-04
 
 Search policy follows the atlas's own capability data, and the dependency
