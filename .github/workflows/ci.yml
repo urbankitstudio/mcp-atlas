@@ -109,6 +109,11 @@ jobs:
       - name: Smoke the built server over stdio
         run: npm run smoke
 
+      # The owner-search policy: scope ANDed into shared layers, attributeSearch
+      # "unsupported" and searchable:false refused. Unit-level, on the built dist.
+      - name: Owner-search policy tests
+        run: npm run test:policy
+
       # Against the EXTRACTED TARBALL, never the working tree: `files` in
       # package.json decides what ships, and the working tree does not.
       #
@@ -134,5 +139,5 @@ jobs:
             echo "### mcp-atlas CI"
             echo ""
             echo "- version: \`$(node -p "require('$GITHUB_WORKSPACE/package.json').version")\`"
-            echo "- gates: install, typecheck, build, server.json consistency, registry schema caps, stdio smoke, tarball bin"
+            echo "- gates: install, typecheck, build, server.json consistency, registry schema caps, stdio smoke, owner-search policy, tarball bin"
           } >> "$GITHUB_STEP_SUMMARY"

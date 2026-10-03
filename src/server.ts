@@ -23,9 +23,17 @@ import {
   atlasIndex,
   slugify,
   countySlugFromName,
-  isReviewedUnservable,
-  reviewedCapability,
 } from "@urbankitstudio/atlas";
+import {
+  ownerSearchPolicy,
+  ownerWhereClause,
+  ownerCoverageLabel,
+  escapeSqlLiteral,
+  type OwnerSearchPolicy,
+} from "./search-policy.js";
+
+// Re-exported so the package's public surface is unchanged by the move.
+export { escapeSqlLiteral };
 
 const PKG_VERSION: string = JSON.parse(
   readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8"),
@@ -36,64 +44,39 @@ import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * The owner column a caller can actually USE, or null with a reason.
- *
- * Matching the column name is not enough, and that gap cost a real trial user:
- * they paid for owner data, ran Los Angeles County, got nothing back, and the
- * atlas had said the field was there the whole time. Fourteen counties in the
- * registry document an owner column that is present and empty on every row -
- * New Jersey's statewide layer publishes OWNER_NAME blank across 3,481,240
- * rows, New York's across 3,827,530 - and a reviewed capability record says so.
- * Consult it BEFORE promising the field.
- */
-function ownerFieldFor(
-  county: CountyRecord,
-  endpoint: EndpointRecord,
-): { field: string | null; unavailableReason: string | null } {
-  if (isReviewedUnservable(county, "owner_name")) {
-    const reviewed = reviewedCapability(county, "owner_name");
-    return {
-      field: null,
-      unavailableReason:
-        reviewed?.basis?.note ??
-        "this county publishes no usable owner name on its public endpoint",
-    };
+// Whether an owner query is offered, and how it is scoped, is decided ONLY in
+// ./search-policy.ts. Matching the column name is not enough, and that gap cost
+// a real trial user: they paid for owner data, ran Los Angeles County, got
+// nothing back, and the atlas had said the field was there the whole time.
+
+/** The Owner/Attribute line shared by find_county and get_parcel_endpoint. */
+function ownerLine(owner: OwnerSearchPolicy): string {
+  if (owner.field) return `Owner field: ${owner.field}`;
+  if (owner.kind === "attribute_search_unsupported") {
+    return `Attribute search: not offered (location queries only) - ${owner.reason}`;
   }
-  const f = endpoint.searchFields.find((sf) =>
-    /owner|taxpayer|taxname/i.test(sf.name)
-  );
-  return { field: f?.name ?? null, unavailableReason: null };
+  if (owner.kind === "owner_unsearchable") {
+    return "Owner field: not searchable by name (column exists; use a parcel-id or location query)";
+  }
+  return owner.reason
+    ? `Owner field: NOT AVAILABLE - ${owner.reason}`
+    : "Owner field: NONE - this layer publishes no owner column";
 }
 
-/** Back-compat shim for call sites that only need the column. */
-function ownerFieldFrom(county: CountyRecord, endpoint: EndpointRecord): string | null {
-  return ownerFieldFor(county, endpoint).field;
-}
-
-/**
- * An ArcGIS `where` is SQL, and a single quote closes the string literal.
- * encodeURIComponent does not help: `'` and `)` are both in its unreserved set, so
- * `A') OR 1=1 --` passes through encoding intact and lands OUTSIDE the quotes as a
- * live predicate against a county's server. Doubling the quote is the SQL-standard
- * escape and keeps the whole input inside the literal where it belongs.
- *
- * Every caller that puts user text in a `where` goes through this, including the
- * clause rendered for a human to copy: escaping only the URL would leave the same
- * payload one paste away from running.
- */
-export function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
+/** A shared layer's county predicate, printed so a caller ANDs it into any query of their own. */
+function scopeLine(owner: OwnerSearchPolicy): string | null {
+  return owner.scopeWhere
+    ? `Scope: ${owner.scopeWhere} (shared layer; AND this into every query)`
+    : null;
 }
 
 function buildArcgisOwnerQuery(
-  county: CountyRecord,
   endpoint: EndpointRecord,
+  owner: OwnerSearchPolicy,
   ownerQuery: string,
 ): string {
-  const field = ownerFieldFrom(county, endpoint);
-  if (!field) return "";
-  const where = `UPPER(${field}) LIKE UPPER('%25${encodeURIComponent(escapeSqlLiteral(ownerQuery))}%25')`;
+  if (!owner.field) return "";
+  const where = encodeURIComponent(ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery));
   const liveFields = endpoint.searchFields
     .filter((sf) => sf.searchable)
     .map((sf) => sf.name)
@@ -114,22 +97,19 @@ function formatCountySummary(c: CountyRecord): string {
       ? "no REST endpoint mapped"
       : c.endpoints
           .map((ep) => {
-            const owner = ownerFieldFor(c, ep);
+            const owner = ownerSearchPolicy(c, ep);
             const searchable = ep.searchFields
               .filter((sf) => sf.searchable)
               .map((sf) => `${sf.name} (${sf.label})`)
               .join(", ");
+            const scope = scopeLine(owner);
             return [
               `  URL: ${ep.url}`,
               `  Service: ${ep.serviceType}/layer ${ep.layerIndex}`,
               `  Status: ${ep.status} (verified ${ep.lastVerified})`,
+              ...(scope ? [`  ${scope}`] : []),
               `  Searchable fields: ${searchable || "none"}`,
-              `  Owner field: ${
-                owner.field ??
-                (owner.unavailableReason
-                  ? `NOT AVAILABLE - ${owner.unavailableReason}`
-                  : "none (this layer publishes no owner column)")
-              }`,
+              `  ${ownerLine(owner)}`,
               `  License: ${ep.license}`,
             ].join("\n");
           })
@@ -202,19 +182,10 @@ server.registerTool(
         (c) => c.endpoints.length > 0
       );
       for (const c of covered) {
-        // "APN only" is not the same claim as "owner+APN minus the owner".
-        // A caller scanning this column is deciding whether to spend a request,
-        // so a county whose owner column exists and is empty must not read as
-        // though owners are simply absent from the schema.
-        const anyOwner = c.endpoints.some((ep) => ownerFieldFor(c, ep).field);
-        const ownerWithheld = c.endpoints.some(
-          (ep) => ownerFieldFor(c, ep).unavailableReason,
-        );
-        const ownerCoverage = anyOwner
-          ? "owner+APN"
-          : ownerWithheld
-            ? "APN only (county publishes no owner name)"
-            : "APN only";
+        // A caller scanning this column is deciding whether to spend a request.
+        // ownerCoverageLabel documents what each label promises; "owner+APN"
+        // means build_owner_query will actually return a URL.
+        const ownerCoverage = ownerCoverageLabel(c);
         rows.push(
           `${c.state} | ${c.county.padEnd(20)} | ${c.countySlug.padEnd(24)} | ${ownerCoverage}`
         );
@@ -354,7 +325,7 @@ server.registerTool(
   {
     title: "Get one county's parcel endpoint record",
     description:
-      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field, a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
+      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
     inputSchema: {
       state: z
         .string()
@@ -419,11 +390,12 @@ server.registerTool(
     ];
 
     countyRecord.endpoints.forEach((ep, i) => {
-      const owner = ownerFieldFor(countyRecord, ep);
+      const owner = ownerSearchPolicy(countyRecord, ep);
       const ownerField = owner.field;
       const sampleOwnerUrl = ownerField
-        ? buildArcgisOwnerQuery(countyRecord, ep, "SMITH")
+        ? buildArcgisOwnerQuery(ep, owner, "SMITH")
         : null;
+      const scope = scopeLine(owner);
 
       lines.push(`Endpoint ${i + 1}:`);
       lines.push(`  URL:         ${ep.url}`);
@@ -433,20 +405,14 @@ server.registerTool(
       lines.push(`  Status:      ${ep.status} (verified ${ep.lastVerified})`);
       lines.push(`  CORS:        ${ep.corsEnabled === null ? "unknown" : ep.corsEnabled}`);
       lines.push(`  License:     ${ep.license}${ep.licenseUrl ? ` (${ep.licenseUrl})` : ""}`);
+      if (scope) lines.push(`  ${scope}`);
       lines.push("");
       lines.push("  Searchable fields:");
       ep.searchFields
         .filter((sf) => sf.searchable)
         .forEach((sf) => lines.push(`    ${sf.name.padEnd(20)} – ${sf.label}`));
       lines.push("");
-      lines.push(
-        `  Owner field: ${
-          ownerField ??
-          (owner.unavailableReason
-            ? `NOT AVAILABLE - ${owner.unavailableReason}`
-            : "NONE - this layer publishes no owner column")
-        }`,
-      );
+      lines.push(`  ${ownerLine(owner)}`);
       if (ep.sampleQuery) {
         lines.push("");
         lines.push("  Sample query (from atlas):");
@@ -479,7 +445,7 @@ server.registerTool(
   {
     title: "Build an owner-name search URL for one county",
     description:
-      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. Counties that publish no owner name are refused here with that reason.",
+      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
     inputSchema: {
       state: z
         .string()
@@ -531,27 +497,41 @@ server.registerTool(
     const results: string[] = [];
 
     for (const ep of countyRecord.endpoints) {
-      const owner = ownerFieldFor(countyRecord, ep);
+      const owner = ownerSearchPolicy(countyRecord, ep);
       const ownerField = owner.field;
       if (!ownerField) {
         // Refusing with the reason beats handing back a query that returns zero
-        // rows forever. The caller can then choose a different county or a
-        // different field instead of concluding the owner simply is not there.
-        results.push(
-          owner.unavailableReason
-            ? `Endpoint: ${ep.url}\nOWNER NAME NOT AVAILABLE for ${countyRecord.county}, ${countyRecord.stateName}: ${owner.unavailableReason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`
-            : `Endpoint: ${ep.url}\nNote: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.`
-        );
+        // rows forever, or one that hangs. The caller can then choose a
+        // different county or query instead of concluding the owner is absent.
+        const place = `${countyRecord.county}, ${countyRecord.stateName}`;
+        let refusal: string;
+        switch (owner.kind) {
+          case "attribute_search_unsupported":
+            refusal = `OWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`;
+            break;
+          case "owner_unsearchable":
+            // The owner IS published; only a name search on it is unsupported.
+            refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nUse a parcel-id or location query instead; either returns the owner of the matching parcel.`;
+            break;
+          case "reviewed_unservable":
+            refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
+            break;
+          default:
+            refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
+        }
+        results.push(`Endpoint: ${ep.url}\n${refusal}`);
         continue;
       }
 
-      const queryUrl = buildArcgisOwnerQuery(countyRecord, ep, owner_name);
-      const where = `UPPER(${ownerField}) LIKE UPPER('%${escapeSqlLiteral(owner_name)}%')`;
+      const queryUrl = buildArcgisOwnerQuery(ep, owner, owner_name);
+      const where = ownerWhereClause(ownerField, owner.scopeWhere, owner_name);
+      const scope = scopeLine(owner);
 
       results.push(
         [
           `County:      ${countyRecord.county}, ${countyRecord.stateName}`,
           `Owner field: ${ownerField}`,
+          ...(scope ? [scope] : []),
           `WHERE clause: ${where}`,
           ``,
           `Query URL:`,

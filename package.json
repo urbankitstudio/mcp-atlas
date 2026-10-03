@@ -1,8 +1,8 @@
 {
   "name": "@urbankitstudio/mcp-atlas",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "mcpName": "io.github.LEOyrh/mcp-atlas",
-  "description": "Query the verified parcel ArcGIS REST endpoints of 235 counties across 51 US states (50 states plus DC), 247 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).",
+  "description": "Query the verified parcel ArcGIS REST endpoints of 239 counties across 51 US states (50 states plus DC), 251 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).",
   "keywords": [
     "mcp",
     "mcp-server",
@@ -43,11 +43,12 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node test/smoke.mjs",
     "test:currency": "node --test test/atlas-currency.test.mjs",
-    "prepublishOnly": "npm run typecheck && npm run build && npm run smoke"
+    "test:policy": "node --test test/search-policy.test.mjs",
+    "prepublishOnly": "npm run typecheck && npm run build && npm run smoke && npm run test:policy"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@urbankitstudio/atlas": "^0.6.9"
+    "@urbankitstudio/atlas": "^0.6.11"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
