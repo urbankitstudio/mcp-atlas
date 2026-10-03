@@ -6,6 +6,40 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.7 — 2026-10-04
+
+Search policy follows the atlas's own capability data, and the dependency
+moves to atlas 0.6.11 (235 → 239 counties, 247 → 251 endpoints: Dougherty GA,
+Mobile AL, Malheur OR and Island WA added in 0.6.10; 0.6.11 repairs Monmouth
+NJ, Prince George's MD and Pinal AZ, fixes Arkansas's zero-row scopes and
+Washoe NV's field order). `README.md`, `package.json`'s `description` and
+`server.json`'s `description` carry the new counts.
+
+- Owner queries on shared layers now lead with `(scopeWhere) AND`, in both the
+  URL and the printed WHERE clause; a `Scope:` line appears in `find_county`,
+  `get_parcel_endpoint` and `build_owner_query`. The whole WHERE is
+  %-encoded (before, only the name was).
+- The 67 Florida FDOR layers are refused for attribute search with a
+  location-query hint; 56 FL counties now read "location queries only" in
+  `list_counties`.
+- Owner columns a county marks `searchable: false` are refused: Orleans Parish
+  LA loses its owner query and reads "APN only (owner column not searchable)";
+  the Owner line says "not searchable by name (column exists; use a parcel-id
+  or location query)".
+- The owner-column test is now the UKS site classifier on field name + label
+  with the address/locale exclude: 26 counties gain an owner query (al-shelby,
+  de-new-castle, fl-sarasota, fl-lee, fl-pasco, il-dupage, in-hamilton,
+  ks-shawnee, mi-lenawee, ms-hinds, nv-washoe, nc-forsyth, nc-guilford,
+  nc-cumberland, nd-cass, oh-hamilton, oh-mahoning, ok-oklahoma, or-multnomah,
+  or-umatilla, pa-montgomery and others), none lose one; ia-johnson and
+  tx-williamson move to the column the site already picks.
+- `list_counties` has two new coverage labels: "location queries only" and
+  "APN only (owner column not searchable)"; the README has the label table.
+- Tool descriptions for `build_owner_query` and `get_parcel_endpoint` describe
+  the scope prefix and the three refusal kinds.
+- New `test:policy` suite (12) and CI step; `prepublishOnly` runs smoke +
+  policy.
+
 ## 0.2.6 — 2026-09-26
 
 Catch-up to atlas 0.6.9: 227 → 235 counties, 241 → 247 endpoints, across a

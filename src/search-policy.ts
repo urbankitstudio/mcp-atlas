@@ -36,19 +36,14 @@ import { isReviewedUnservable, reviewedCapability } from "@urbankitstudio/atlas"
 import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
 
 /**
- * The endpoint fields this policy reads. `scopeWhere` and `attributeSearch` are
- * declared by @urbankitstudio/atlas from 0.6.11; delete this local declaration
- * when the dependency bumps. The bundled 0.6.9 JSON already carries both, the
- * 0.6.9 types do not. If 0.6.11 widens `attributeSearch` beyond "unsupported",
- * or declares `scopeWhere` nullable (`string | null`), passing an
- * EndpointRecord here stops compiling with TS2345 at the bump (a review
- * proved the nullable case). That error is the intended cue to delete this
- * local type and read the package's own declaration.
+ * The endpoint fields this policy reads, as @urbankitstudio/atlas declares them
+ * (`scopeWhere` and `attributeSearch` since 0.6.11; before that this file
+ * carried a local copy of the two).
  */
-export type EndpointSearchPolicyFields = Pick<EndpointRecord, "searchFields"> & {
-  scopeWhere?: string;
-  attributeSearch?: "unsupported";
-};
+export type EndpointSearchPolicyFields = Pick<
+  EndpointRecord,
+  "searchFields" | "scopeWhere" | "attributeSearch"
+>;
 
 type CountyPolicyFields = Pick<CountyRecord, "capabilityOverrides">;
 
