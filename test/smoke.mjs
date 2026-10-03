@@ -216,6 +216,42 @@ async function run() {
     "build_owner_query does not hand back an owner WHERE clause for Oakland",
   );
 
+  // Step 8: shared statewide layers. Miami-Dade's second endpoint is Florida's
+  // FDOR layer: every county's rows, scoped by CO_NO=23, and it serves no
+  // attribute search. The scope must be printed and the owner query refused
+  // for that endpoint, while the county's own layer still gets one. The unit
+  // rules live in test/search-policy.test.mjs; this checks the printed output.
+  sendMessage(proc, 9, "tools/call", {
+    name: "get_parcel_endpoint",
+    arguments: { state: "FL", county: "Miami-Dade" },
+  });
+  const mdEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(mdEndpoint.includes("Scope: CO_NO=23"), "get_parcel_endpoint prints Miami-Dade's FDOR scope");
+  assert(
+    mdEndpoint.includes("Attribute search: not offered (location queries only)"),
+    "get_parcel_endpoint says the FDOR layer offers no attribute search",
+  );
+
+  sendMessage(proc, 10, "tools/call", {
+    name: "build_owner_query",
+    arguments: { state: "FL", county: "Miami-Dade", owner_name: "SMITH" },
+  });
+  const mdQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(mdQuery.includes("UPPER(TRUE_OWNER1)"), "build_owner_query still serves Miami-Dade's own layer");
+  assert(mdQuery.includes("OWNER SEARCH NOT OFFERED"), "build_owner_query refuses the FDOR layer");
+  assert(!mdQuery.includes("UPPER(OWN_NAME)"), "build_owner_query hands back no FDOR owner WHERE clause");
+
+  // Pulaski AR sits on Arkansas's statewide layer with a scope and a searchable
+  // owner column, so the printed clause must lead with the scope.
+  sendMessage(proc, 11, "tools/call", {
+    name: "build_owner_query",
+    arguments: { state: "AR", county: "Pulaski", owner_name: "SMITH" },
+  });
+  const arQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(arQuery.includes("WHERE clause: (countyfips"), "build_owner_query ANDs Pulaski's scope in front of the owner match");
+  // The URL is built separately from the printed clause; check both carry it.
+  assert(arQuery.includes("?where=(countyfips%20%3D"), "build_owner_query's URL carries Pulaski's scope too");
+
   // Cleanup
   proc.stdin.end();
   proc.kill();

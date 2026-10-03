@@ -106,7 +106,7 @@ for (const [field, value] of entryPoints) {
 //    without this list being edited in the same PR.
 // ---------------------------------------------------------------------------
 const ALLOWED_LIFECYCLE = new Map([
-  ["prepublishOnly", "npm run typecheck && npm run build && npm run smoke"],
+  ["prepublishOnly", "npm run typecheck && npm run build && npm run smoke && npm run test:policy"],
 ]);
 
 const LIFECYCLE_NAMES = [
