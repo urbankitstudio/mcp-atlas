@@ -71,6 +71,28 @@ test("a plain county (Kane IL) gets an unscoped owner query", () => {
   assert.equal(ownerCoverageLabel(kane), "owner+APN");
 });
 
+test("a plain county matched by LABEL (Mahoning OH, OWNNAME1 'Owner Name 1') gets an unscoped owner query", () => {
+  // The name alone fails the owner test; the label is what the UKS classifier reads.
+  const mahoning = county("ohio", "oh-mahoning");
+  const p = ownerSearchPolicy(mahoning, mahoning.endpoints[0]);
+  assert.equal(p.kind, "offered");
+  assert.equal(p.field, "OWNNAME1");
+  assert.equal(p.scopeWhere, null);
+  assert.equal(ownerWhereClause(p.field, p.scopeWhere, "SMITH"), "UPPER(OWNNAME1) LIKE UPPER('%SMITH%')");
+  assert.equal(ownerCoverageLabel(mahoning), "owner+APN");
+});
+
+test("synthetic: an owner ADDRESS column is never offered as the owner name", () => {
+  const p = ownerSearchPolicy({}, {
+    searchFields: [
+      { name: "OWNER_ADDR", label: "Owner Address", searchable: true },
+      { name: "OWNERCITY", label: "Owner City", searchable: true },
+    ],
+  });
+  assert.equal(p.kind, "no_owner_column");
+  assert.equal(p.field, null);
+});
+
 test("Orleans Parish: an owner column marked searchable:false is not offered", () => {
   const orleans = county("louisiana", "la-orleans-parish");
   assert.equal(ownerSearchPolicy(orleans, orleans.endpoints[0]).kind, "owner_unsearchable");

@@ -18,9 +18,10 @@
  *      column (Florida's FDOR statewide layer; Orleans Parish, where a column
  *      scan takes ~44 s). Owner and address values still come back from
  *      location queries, so the reason says that instead of "no owner".
- *   3. owner_unsearchable: an owner column exists by name but the county marks
+ *   3. owner_unsearchable: an owner-name column exists but the county marks
  *      every such column `searchable: false`. A query on it hangs or errors.
- *   4. offered: the first owner column, by name, that is searchable.
+ *   4. offered: the first owner-name column that is searchable (the column
+ *      test is the UKS classifier's; see OWNER_RE below).
  *   5. no_owner_column: the layer documents no owner column at all.
  *
  * Separately from the branch, `scopeWhere` is returned whenever the registry
@@ -63,7 +64,21 @@ export interface OwnerSearchPolicy {
   scopeWhere: string | null;
 }
 
-const OWNER_COLUMN = /owner|taxpayer|taxname/i;
+// THE OWNER-COLUMN TEST, copied VERBATIM from the UKS canonical classifier:
+// urbankitstudio/src/lib/enrich-core.ts lines 48 (OWNER_RE) and 58
+// (OWNER_EXCLUDE), applied there by firstMatch to `${name} ${label}`. The two
+// copies must stay byte-equal until @urbankitstudio/atlas exports the
+// classifier (a queued UKS follow-up); then import it and delete these lines.
+// Testing the label as well as the name is what makes Mahoning's
+// "OWNNAME1 / Owner Name 1" an owner column. The exclude keeps owner ADDRESS
+// and locale columns (OWNER_ADDR, OWNERCITY) from being offered as a name.
+const OWNER_RE = /owner|taxpayer|tax.?name|grantor|\bown\b|ownnme|ownernme/i;
+const OWNER_EXCLUDE = /addr|address|\bcity\b|\bstate\b|\bzip\b/i;
+
+function isOwnerNameColumn(sf: { name: string; label: string }): boolean {
+  const hay = `${sf.name} ${sf.label}`;
+  return !OWNER_EXCLUDE.test(hay) && OWNER_RE.test(hay);
+}
 
 export const ATTRIBUTE_SEARCH_UNSUPPORTED_REASON =
   "this layer does not serve attribute searches; owner and address fields are answered only by location queries";
@@ -92,7 +107,7 @@ export function ownerSearchPolicy(
   if (endpoint.attributeSearch === "unsupported") {
     return refuse("attribute_search_unsupported", ATTRIBUTE_SEARCH_UNSUPPORTED_REASON);
   }
-  const named = endpoint.searchFields.filter((sf) => OWNER_COLUMN.test(sf.name));
+  const named = endpoint.searchFields.filter(isOwnerNameColumn);
   const usable = named.find((sf) => sf.searchable !== false);
   if (usable) return { kind: "offered", field: usable.name, reason: null, scopeWhere };
   if (named.length > 0) return refuse("owner_unsearchable", OWNER_UNSEARCHABLE_REASON);
