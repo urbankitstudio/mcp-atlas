@@ -24,7 +24,7 @@
   "bugs": {
     "url": "https://github.com/urbankitstudio/mcp-atlas/issues"
   },
-  "author": "UrbanKit Studio <urbankitstudio@gmail.com>",
+  "author": "UrbanKit Studio <contact@urbankitstudio.com>",
   "license": "MIT",
   "type": "module",
   "main": "./dist/server.js",
