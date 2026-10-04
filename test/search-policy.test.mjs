@@ -93,10 +93,10 @@ test("synthetic: an owner ADDRESS column is never offered as the owner name", ()
   assert.equal(p.field, null);
 });
 
-test("Orleans Parish: an owner column marked searchable:false is not offered", () => {
+test("Orleans Parish: attributeSearch unsupported (atlas 0.6.13) refuses owner search, location queries only", () => {
   const orleans = county("louisiana", "la-orleans-parish");
-  assert.equal(ownerSearchPolicy(orleans, orleans.endpoints[0]).kind, "owner_unsearchable");
-  assert.equal(ownerCoverageLabel(orleans), "APN only (owner column not searchable)");
+  assert.equal(ownerSearchPolicy(orleans, orleans.endpoints[0]).kind, "attribute_search_unsupported");
+  assert.equal(ownerCoverageLabel(orleans), "location queries only");
 });
 
 test("synthetic: owner column marked searchable:false is refused with the unsearchable reason", () => {

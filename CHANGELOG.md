@@ -8,11 +8,14 @@ this monorepo to draw from.
 
 ## 0.2.8 — 2026-10-04
 
-Dependency catch-up to atlas 0.6.12 (239 → 241 counties, 251 → 253
+Dependency catch-up to atlas 0.6.14 (239 → 246 counties, 251 → 258
 endpoints): Mille Lacs County MN (owner search on TAXPAYER_NAME) and St. Louis
 city MO (an independent city, distinct from St. Louis County; the first atlas
 record with `corsEnabled: false`, so it is server-side only, which this server
-is). No code changes. `README.md`, `package.json`'s `description` and
+is) from 0.6.12. Atlas 0.6.13 (Orleans Parish LA, location queries only,
+attribute search unsupported) and 0.6.14 (Essex NJ, Clackamas OR, Phelps NE,
+Tulare CA, Sullivan TN; Garfield OK on record without an endpoint) are both
+included. No code changes. `README.md`, `package.json`'s `description` and
 `server.json`'s `description` carry the new counts.
 
 ## 0.2.7 — 2026-10-04

@@ -252,16 +252,16 @@ async function run() {
   // The URL is built separately from the printed clause; check both carry it.
   assert(arQuery.includes("?where=(countyfips%20%3D"), "build_owner_query's URL carries Pulaski's scope too");
 
-  // Orleans publishes owner names but marks OWNERNME1 unsearchable (a column
-  // scan takes ~44 s). The refusal must not claim the owner is unavailable.
+  // Orleans (atlas 0.6.13+) marks its layer attributeSearch: "unsupported": owner
+  // and address fields come back only from location queries, not a where-clause.
   sendMessage(proc, 12, "tools/call", {
     name: "build_owner_query",
     arguments: { state: "LA", county: "Orleans Parish", owner_name: "SMITH" },
   });
   const orleansQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(
-    orleansQuery.includes("OWNER COLUMN NOT SEARCHABLE BY NAME") && orleansQuery.includes("parcel-id or location query"),
-    "build_owner_query refuses Orleans' unsearchable owner column and points to a parcel-id or location query",
+    orleansQuery.includes("OWNER SEARCH NOT OFFERED") && orleansQuery.includes("Query the layer by location"),
+    "build_owner_query refuses Orleans' unsupported attribute search and points to a location query",
   );
 
   // The shared Owner line (get_parcel_endpoint, find_county) must say the same.
@@ -271,9 +271,9 @@ async function run() {
   });
   const orleansEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(
-    orleansEndpoint.includes("Owner field: not searchable by name (column exists; use a parcel-id or location query)") &&
+    orleansEndpoint.includes("Attribute search: not offered (location queries only)") &&
       !orleansEndpoint.includes("NOT AVAILABLE"),
-    "get_parcel_endpoint says Orleans' owner column exists but is not searchable by name",
+    "get_parcel_endpoint says Orleans offers location queries only, not attribute search",
   );
 
   // Cleanup
