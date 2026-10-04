@@ -6,6 +6,14 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.9 — 2026-10-04
+
+Dependency catch-up to atlas ^0.6.15 (246 counties, 258 endpoints). Orleans
+Parish LA was added in 0.6.13; 0.6.15 makes `attributeSearch` honoured by the
+capability readers `offersAttributeSearch` and `countyOffersAttributeSearch`
+and exports `canonicalLayerUrl`. No code changes. The counts in `README.md`,
+`package.json` and `server.json` were already 246 / 258.
+
 ## 0.2.8 — 2026-10-04
 
 Dependency catch-up to atlas 0.6.14 (239 → 246 counties, 251 → 258
