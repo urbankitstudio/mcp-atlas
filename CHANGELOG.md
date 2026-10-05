@@ -6,6 +6,17 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.10 — 2026-10-04
+
+Dependency catch-up to atlas ^0.6.16 (246 counties, 258 endpoints). 0.6.16 is
+a data refresh with no API change and no new counties. Five New Jersey county
+records (Bergen, Essex, Ocean, Camden, Morris) on the two NJOGIS statewide
+services now state what those services serve: owner-name availability, the
+mailing-address columns and the PAMS_PIN label. All 67 Florida registrations
+on the FDOR statewide cadastral replace a `sampleQuery` the layer rejects with
+one scoped to the county. No code changes. The totals in `README.md`,
+`package.json` and `server.json` are unchanged at 246 / 258.
+
 ## 0.2.9 — 2026-10-04
 
 Dependency catch-up to atlas ^0.6.15 (246 counties, 258 endpoints). Orleans
