@@ -6,6 +6,21 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.11 — 2026-10-05
+
+Dependency bump to atlas ^0.6.17 (247 counties, 259 endpoints, 241 with a
+verified endpoint). 0.6.17 adds one county and one optional field, no breaking
+change:
+
+- New county: Schenectady NY (36093), a vendor-hosted Spatial Data Logic layer
+  with owner names published, print key, situs and owner mailing address; a
+  `dataVintage` advisory because the layer's last edit date is 2023-09-28.
+- New field: `CountyRecord.addedAt?: string | null`, the ISO day a county
+  entered the atlas. It never moves once stamped; Schenectady is the first.
+  This server passes records through, so the field is visible to clients and
+  nothing here reads it.
+- Re-checked, still no public REST: Iron MI (26071), Garfield OK (40047).
+
 ## 0.2.10 — 2026-10-04
 
 Dependency catch-up to atlas ^0.6.16 (246 counties, 258 endpoints). 0.6.16 is
