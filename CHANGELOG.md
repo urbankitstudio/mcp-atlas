@@ -6,6 +6,18 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.12 — 2026-10-06
+
+Dependency bump to atlas ^0.6.18 (248 counties, 260 endpoints, 242 with a
+verified endpoint). 0.6.18 adds one county, no API change, no breaking change:
+
+- New county: Mendocino CA (06045), the County's own ArcGIS Online layer
+  (`Parcels_Public_`, 62,051 parcels, data last edited 2026-06-08, CORS open).
+  APN, the 10-character APNFULL and the situs address are searchable. The
+  public layer publishes no owner name and no owner mailing address, so the
+  record carries an `ownerFieldNote` and `not_published` capability overrides
+  for both; an owner search returns nothing for this county.
+
 ## 0.2.11 — 2026-10-05
 
 Dependency bump to atlas ^0.6.17 (247 counties, 259 endpoints, 241 with a
