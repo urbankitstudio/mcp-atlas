@@ -6,6 +6,15 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.13 — 2026-10-06
+
+Dependency bump to atlas ^0.6.19 (249 counties, 261 endpoints, 243 with a
+verified endpoint). 0.6.19 adds one county, no API change, no breaking change:
+
+- New county: Polk OR (41053), on the County's own ArcGIS web adaptor
+  (CORS open). Indexed from a request; the record carries the County's
+  outreach note.
+
 ## 0.2.12 — 2026-10-06
 
 Dependency bump to atlas ^0.6.18 (248 counties, 260 endpoints, 242 with a
