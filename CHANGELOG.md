@@ -6,6 +6,21 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.14 — 2026-10-06
+
+No data change (atlas stays ^0.6.19, 249 counties, 261 endpoints). Every
+"county not found" answer from `find_county`, `get_parcel_endpoint` and
+`build_owner_query` now ends with how to request the county, free:
+
+- `POST {"county_fips": "<5 digits>"}` (or `{"state": "<state-slug>",
+  "county": "<county-slug>"}`, optional `requester_email`, `note`, `source_url`)
+  to `https://urbankitstudio.com/api/atlas/request`, or the hosted MCP tool
+  `request_county` at `https://urbankitstudio.com/api/mcp`.
+- Slugs are strict (lowercase, single hyphens). A repeat of the same county
+  from the same requester within 24 h returns the first request's id.
+- This stdio server carries no network tool of its own, so it points at the
+  hosted path instead of taking the request itself.
+
 ## 0.2.13 — 2026-10-06
 
 Dependency bump to atlas ^0.6.19 (249 counties, 261 endpoints, 243 with a
