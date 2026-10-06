@@ -276,6 +276,40 @@ async function run() {
     "get_parcel_endpoint says Orleans offers location queries only, not attribute search",
   );
 
+  // Step 9 (0.2.14): a county the atlas does not hold is pointed at the hosted
+  // request path. This server has no network tool, so the three not-found
+  // answers carry the URL and the hosted tool name instead of a dead end.
+  sendMessage(proc, 14, "tools/call", {
+    name: "find_county",
+    arguments: { query: "Nowhere County ZZ" },
+  });
+  const missFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(missFind.includes("No county matched"), "find_county reports no match for a made-up county");
+  assert(
+    missFind.includes("https://urbankitstudio.com/api/atlas/request") && missFind.includes("request_county"),
+    "find_county's no-match answer carries the hosted request URL and tool name",
+  );
+
+  sendMessage(proc, 15, "tools/call", {
+    name: "get_parcel_endpoint",
+    arguments: { state: "IL", county: "Nowhere" },
+  });
+  const missEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    missEndpoint.includes("not found in state") && missEndpoint.includes("https://urbankitstudio.com/api/atlas/request"),
+    "get_parcel_endpoint's not-found answer carries the hosted request URL",
+  );
+
+  sendMessage(proc, 16, "tools/call", {
+    name: "build_owner_query",
+    arguments: { state: "IL", county: "Nowhere", owner_name: "SMITH" },
+  });
+  const missQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    missQuery.includes("not found in state") && missQuery.includes("https://urbankitstudio.com/api/atlas/request"),
+    "build_owner_query's not-found answer carries the hosted request URL",
+  );
+
   // Cleanup
   proc.stdin.end();
   proc.kill();

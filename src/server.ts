@@ -38,6 +38,13 @@ export { escapeSqlLiteral };
 const PKG_VERSION: string = JSON.parse(
   readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8"),
 ).version;
+
+// This server carries no network tool of its own, so a county it does not hold
+// is pointed at the hosted request path instead (free; UKS PR #941, 2026-10-06).
+const REQUEST_COUNTY_HINT =
+  'This county is not in the UrbanKit atlas yet. You can request it, free: POST {"county_fips": "<5 digits>"} ' +
+  '(or {"state": "<state-slug>", "county": "<county-slug>"}, optional "requester_email", "note", "source_url") ' +
+  "to https://urbankitstudio.com/api/atlas/request, or call the hosted MCP tool request_county at https://urbankitstudio.com/api/mcp.";
 import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
 
 // ---------------------------------------------------------------------------
@@ -297,7 +304,8 @@ server.registerTool(
             type: "text" as const,
             text:
               `No county matched "${query}".\n` +
-              `Try: "Kane IL", "Cook County IL", "17031" (FIPS), or use list_counties to browse.`,
+              `Try: "Kane IL", "Cook County IL", "17031" (FIPS), or use list_counties to browse.\n` +
+              REQUEST_COUNTY_HINT,
           },
         ],
       };
@@ -366,7 +374,8 @@ server.registerTool(
             type: "text" as const,
             text:
               `County "${county}" not found in state "${state}".\n` +
-              `Use list_counties or find_county to verify the name.`,
+              `Use list_counties or find_county to verify the name.\n` +
+              REQUEST_COUNTY_HINT,
           },
         ],
       };
@@ -488,7 +497,9 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
-            text: `County "${county}" not found in state "${state}". Use find_county to verify.`,
+            text:
+              `County "${county}" not found in state "${state}". Use find_county to verify.\n` +
+              REQUEST_COUNTY_HINT,
           },
         ],
       };
