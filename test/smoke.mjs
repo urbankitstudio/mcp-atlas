@@ -286,7 +286,9 @@ async function run() {
   const missFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(missFind.includes("No county matched"), "find_county reports no match for a made-up county");
   assert(
-    missFind.includes("https://urbankitstudio.com/api/atlas/request") && missFind.includes("request_county"),
+    missFind.includes("https://urbankitstudio.com/api/atlas/request") &&
+      missFind.includes("request_county") &&
+      missFind.includes("Offer to request it for the person you are helping"),
     "find_county's no-match answer carries the hosted request URL and tool name",
   );
 
