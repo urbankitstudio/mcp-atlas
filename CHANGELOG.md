@@ -6,6 +6,15 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.15 — 2026-10-06
+
+No data change (atlas stays ^0.6.19, 249 counties, 261 endpoints). The not-found
+hint now tells the agent what to do with the request path, not only where it is:
+offer to request the county for the person it is helping; if they say yes, POST
+the body or call the hosted `request_county` tool, adding their email if they
+want to be told when it ships. Requesting is free. Same wording as the hosted
+MCP's not-indexed answer.
+
 ## 0.2.14 — 2026-10-06
 
 No data change (atlas stays ^0.6.19, 249 counties, 261 endpoints). Every
