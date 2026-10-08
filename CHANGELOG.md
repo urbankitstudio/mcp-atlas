@@ -6,6 +6,13 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.16 — 2026-10-08
+
+Data update: atlas ^0.6.20, 254 counties and 265 endpoints (247 with a
+verified endpoint). New counties are Chesterfield VA, Newport News VA,
+Bradford PA and Montgomery NC, and Dutchess NY is listed with no public
+REST endpoint. No tool or API change.
+
 ## 0.2.15 — 2026-10-06
 
 No data change (atlas stays ^0.6.19, 249 counties, 261 endpoints). The not-found
