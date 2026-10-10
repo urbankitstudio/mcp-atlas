@@ -66,9 +66,10 @@ jobs:
     # A hung job holds a MINTABLE npm publish identity for GitHub's default six
     # hours. The monorepo workflow this was ported from carries a timeout twice;
     # dropping it here was a regression, not a simplification. 25 rather than
-    # 15 since 0.2.21: the MCP Registry steps can spend up to ~13 minutes in
-    # bounded retries (6 x (60 s login + 120 s publish + 30 s wait), then the
-    # read-back) after npm has already shipped.
+    # 15 since 0.2.21: after npm ships, the MCP Registry steps can spend up to
+    # ~14 minutes in bounded retries (4 x (60 s login + 120 s publish) + 3 x 30 s
+    # waits) plus ~4.5 minutes of read-back (8 x 20 s curl + 7 x 15 s). With
+    # ~5 minutes of install and gates the worst case is ~23 minutes.
     timeout-minutes: 25
     # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
     # environment `npm-publish`, so npm checks the OIDC token for an
@@ -410,19 +411,19 @@ jobs:
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4; do
             if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1 \
                && timeout 60 /tmp/mcp-publisher login github-oidc \
                && timeout 120 /tmp/mcp-publisher publish; then
               echo "published=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ "$attempt" -lt 6 ]; then
+            if [ "$attempt" -lt 4 ]; then
               echo "registry attempt $attempt failed (npm not visible yet, or login/publish failed); retrying in 30 s"
               sleep 30
             fi
           done
-          echo "::error::MCP Registry publish failed 6 times for $VERSION."
+          echo "::error::MCP Registry publish failed 4 times for $VERSION."
           exit 1
 
       # A zero exit from the publisher is not proof. Read the entry back.
