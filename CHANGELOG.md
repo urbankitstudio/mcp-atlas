@@ -6,6 +6,11 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.19 — 2026-10-10
+Data update: atlas ^0.6.23, 277 counties and 288 endpoints, 287 of them
+live. New counties are Greene MO, Georgetown SC, Hill TX and James City
+County VA. No tool or API change.
+
 ## 0.2.18 — 2026-10-10
 Data update: atlas ^0.6.22, 273 counties and 284 endpoints, 283 of them
 live. Sixteen Kentucky counties are new: Boone, Clark, Daviess, Franklin,
