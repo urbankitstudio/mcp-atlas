@@ -9,7 +9,9 @@ Rules for any Claude session working in this repository. Keep this file under 80
 `@urbankitstudio/atlas`, UrbanKit Studio's registry of verified county parcel ArcGIS
 endpoints, and bundles no data of its own: the atlas is a runtime dependency. No lockfile
 ships in the tarball, so an install resolves the published range fresh. It publishes to npm
-and is listed on the MCP registry as `io.github.LEOyrh/mcp-atlas` (`server.json`).
+and is listed on the MCP registry as `io.github.urbankitstudio/mcp-atlas` (`server.json`), which
+publish.yml updates on every release over GitHub OIDC. Until 0.2.20 the name was
+`io.github.LEOyrh/mcp-atlas`, published by hand; that entry is deprecated.
 
 ## What it follows
 
