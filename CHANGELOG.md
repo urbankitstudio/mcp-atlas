@@ -6,6 +6,16 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.17 — 2026-10-10
+
+Data update: atlas ^0.6.21, 257 counties and 268 endpoints, 267 of them
+live. New counties are Lyon NV, Humboldt CA and Fresno CA (Fresno serves
+parcels with owner data withheld). No tool or API change.
+
+The README coverage line now counts live endpoints. 0.2.16 said "247 of
+them verified", but 247 was the number of counties with a live endpoint,
+not a count of endpoints, and every endpoint carries a verification date.
+
 ## 0.2.16 — 2026-10-08
 
 Data update: atlas ^0.6.20, 254 counties and 265 endpoints (247 with a
