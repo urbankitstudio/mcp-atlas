@@ -65,8 +65,12 @@ jobs:
     runs-on: ubuntu-latest
     # A hung job holds a MINTABLE npm publish identity for GitHub's default six
     # hours. The monorepo workflow this was ported from carries a timeout twice;
-    # dropping it here was a regression, not a simplification.
-    timeout-minutes: 15
+    # dropping it here was a regression, not a simplification. 25 rather than
+    # 15 since 0.2.21: after npm ships, the MCP Registry steps can spend up to
+    # ~14 minutes in bounded retries (4 x (60 s login + 120 s publish) + 3 x 30 s
+    # waits) plus ~4.5 minutes of read-back (8 x 20 s curl + 7 x 15 s). With
+    # ~5 minutes of install and gates the worst case is ~23 minutes.
+    timeout-minutes: 25
     # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
     # environment `npm-publish`, so npm checks the OIDC token for an
     # `environment` claim carrying that exact name. GitHub only puts that claim
@@ -287,6 +291,28 @@ jobs:
             exit 1
           fi
 
+      # The MCP Registry publish below needs `mcp-publisher`. Pinned to a release
+      # and checked against that release's published sha256, never `latest`:
+      # this job holds a mintable npm publish identity, and an unpinned download
+      # would run whatever that URL serves on the day. To move the pin, take the
+      # new tag's `registry_<ver>_checksums.txt` line for
+      # mcp-publisher_linux_amd64.tar.gz.
+      #
+      # `validate` asks the registry to check server.json BEFORE npm publishes,
+      # so a server.json the registry would refuse fails the release while
+      # nothing has shipped yet. Runs on dry runs too.
+      - name: Install mcp-publisher and validate server.json
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        env:
+          PUBLISHER_VERSION: v1.8.1
+          PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          curl -fsSL --max-time 60 -o /tmp/mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$PUBLISHER_SHA256  /tmp/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/mcp-publisher.tar.gz -C /tmp mcp-publisher
+          /tmp/mcp-publisher validate server.json
+
       # The server talks JSON-RPC over stdio, so "does it build" is not the same
       # question as "does it answer". Ask it. This runs the repo's own
       # test/smoke.mjs rather than an inline probe, because that file asserts
@@ -309,19 +335,34 @@ jobs:
           tar -xzf "$TARBALL" -C /tmp/verify-mcp
           node scripts/verify-package.mjs /tmp/verify-mcp/package "$PWD"
 
-      - name: This version is not already on the registry
-        # Only on a real publish. A dry run at an already-published version is a
-        # legitimate rehearsal, and failing it would make the rehearsal useless
-        # exactly when you most want one.
+      # prepublishOnly runs this too, but only inside `npm publish`, which a
+      # recovery run (npm already has the version) skips. As its own gate it
+      # holds the MCP Registry publish below on both paths.
+      - name: Owner-search policy test
+        if: ${{ steps.bump.outputs.release == 'true' }}
+        run: npm run test:policy
+
+      # Only on a real publish. A dry run at an already-published version is a
+      # legitimate rehearsal, and failing it would make the rehearsal useless
+      # exactly when you most want one.
+      #
+      # Since 0.2.21 "already on npm" is a RECOVERY state, not an error: a re-run
+      # after npm landed and the MCP Registry step failed. The npm publish is
+      # skipped and the registry steps run, so that re-run can go green. A first
+      # run never lands here, because `release` needs the version to have moved.
+      - name: Is this version already on npm?
+        id: already
         if: ${{ steps.bump.outputs.release == 'true' && steps.mode.outputs.dry != 'true' }}
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1; then
-            echo "::error::@urbankitstudio/mcp-atlas@$VERSION is already published. Bump the version first."
-            exit 1
+            echo "::warning::@urbankitstudio/mcp-atlas@$VERSION is already on npm; skipping the npm publish and retrying only the MCP Registry."
+            echo "onnpm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$VERSION is not on npm yet"
+            echo "onnpm=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "$VERSION is not on the registry yet"
 
       # No NODE_AUTH_TOKEN: npm mints a short-lived credential from the OIDC
       # identity above. A 404 or "not configured for trusted publishing" here
@@ -332,7 +373,7 @@ jobs:
       # condition no longer repeats it.
       - name: Publish
         id: publish
-        if: ${{ steps.mode.outputs.dry != 'true' && steps.bump.outputs.release == 'true' }}
+        if: ${{ steps.mode.outputs.dry != 'true' && steps.bump.outputs.release == 'true' && steps.already.outputs.onnpm == 'false' }}
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
@@ -350,6 +391,68 @@ jobs:
             fi
           fi
 
+      # The official MCP Registry, which directories such as mcprush copy from.
+      # Until 0.2.20 this was a manual `mcp-publisher login github` from Leo's
+      # machine, and the entry sat at 0.2.3 for 17 releases. `login github-oidc`
+      # uses this job's `id-token: write` identity, and the registry grants it
+      # `io.github.<repository_owner>/*` (registry source,
+      # internal/api/handlers/v0/auth/github_oidc.go), which is why server.json's
+      # name is io.github.urbankitstudio/mcp-atlas: the repo owner, not a person.
+      #
+      # Default success() gating: every gate above passed, and either npm
+      # published in this run or npm already had the version (recovery re-run).
+      # Each attempt re-checks npm first, because the registry reads `mcpName`
+      # from the published npm package and npm has lagged a publish by ~80 s,
+      # then logs in again (the registry token is short-lived). No sleep after
+      # the last attempt; `timeout` bounds a stalled publisher call.
+      - name: Publish to the MCP Registry
+        id: mcpreg
+        if: ${{ steps.mode.outputs.dry != 'true' && steps.bump.outputs.release == 'true' && (steps.publish.outputs.published == 'true' || steps.already.outputs.onnpm == 'true') }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          for attempt in 1 2 3 4; do
+            if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1 \
+               && timeout 60 /tmp/mcp-publisher login github-oidc \
+               && timeout 120 /tmp/mcp-publisher publish; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "registry attempt $attempt failed (npm not visible yet, or login/publish failed); retrying in 30 s"
+              sleep 30
+            fi
+          done
+          echo "::error::MCP Registry publish failed 4 times for $VERSION."
+          exit 1
+
+      # A zero exit from the publisher is not proof. Read the entry back.
+      - name: Confirm on the MCP Registry
+        if: ${{ steps.mcpreg.outputs.published == 'true' }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          NAME=$(node -p "require('./server.json').name")
+          # Retried for ~2 minutes: a listing can trail a successful publish.
+          # Exact name AND version must match, so this cannot pass on a
+          # neighbour's entry or an older version.
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if curl -fsSL --max-time 20 -G "https://registry.modelcontextprotocol.io/v0/servers" \
+                 --data-urlencode "search=$NAME" --data-urlencode "limit=100" -o /tmp/reg.json \
+               && node -e '
+                 const [name, version] = process.argv.slice(1);
+                 const d = JSON.parse(require("fs").readFileSync("/tmp/reg.json", "utf8"));
+                 const hit = (d.servers || []).find(s => s.server && s.server.name === name && s.server.version === version);
+                 process.exit(hit ? 0 : 1);
+               ' "$NAME" "$VERSION"; then
+              echo "registry lists $NAME@$VERSION"
+              exit 0
+            fi
+            [ "$attempt" -lt 8 ] && sleep 15
+          done
+          echo "::error::$NAME@$VERSION is not listed on the MCP Registry after ~2 minutes."
+          exit 1
+
       # Values reach this step through `env:`, never through `${{ }}` inside
       # `run:`. An expression interpolated into a shell IS shell, and this step
       # is `if: always()`, so it runs even after every gate has failed -- the
@@ -363,6 +466,7 @@ jobs:
           RELEASE: ${{ steps.bump.outputs.release }}
           DRY: ${{ steps.mode.outputs.dry }}
           PUBLISHED: ${{ steps.publish.outputs.published || 'no' }}
+          MCPREG: ${{ steps.mcpreg.outputs.published || 'no' }}
         run: |
           {
             echo "### @urbankitstudio/mcp-atlas"
@@ -371,6 +475,7 @@ jobs:
             echo "- release: \`$RELEASE\`"
             echo "- dry run: \`$DRY\`"
             echo "- published: \`$PUBLISHED\`"
+            echo "- MCP Registry: \`$MCPREG\`"
             echo ""
             echo "A green run is NOT a publish. Confirm on the registry:"
             echo ""
