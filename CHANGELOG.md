@@ -6,6 +6,11 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.22 — 2026-10-10
+Data update: atlas ^0.6.25, 286 counties and 297 endpoints, 296 of them
+live. New counties are Clay, Craighead, Faulkner, Garland, Saline and
+Sebastian AR. No tool or API change.
+
 ## 0.2.21 — 2026-10-10
 Registry only. The MCP Registry name moves from `io.github.LEOyrh/mcp-atlas`
 to `io.github.urbankitstudio/mcp-atlas` (`mcpName` and `server.json`), and
