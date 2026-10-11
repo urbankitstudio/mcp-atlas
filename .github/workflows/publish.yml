@@ -67,10 +67,12 @@ jobs:
     # hours. The monorepo workflow this was ported from carries a timeout twice;
     # dropping it here was a regression, not a simplification. 25 rather than
     # 15 since 0.2.21: after npm ships, the MCP Registry steps can spend up to
-    # ~14 minutes in bounded retries (4 x (60 s login + 120 s publish) + 3 x 30 s
-    # waits) plus ~4.5 minutes of read-back (8 x 20 s curl + 7 x 15 s). With
-    # ~5 minutes of install and gates the worst case is ~23 minutes.
-    timeout-minutes: 25
+    # ~17 minutes in bounded retries (npm visibility wait: 10 x 15 s view + 300 s
+    # of backoff = 7.5 min; then 3 x (60 s login + 120 s publish) + 2 x 10 s
+    # waits = 9.3 min) plus ~4.5 minutes of read-back (8 x 20 s curl + 7 x 15 s).
+    # With ~5 minutes of install and gates the worst case is ~26.3 minutes, so 27.
+    # Only the post-npm-publish wait grew; the npm identity is spent by then.
+    timeout-minutes: 27
     # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
     # environment `npm-publish`, so npm checks the OIDC token for an
     # `environment` claim carrying that exact name. GitHub only puts that claim
@@ -403,27 +405,60 @@ jobs:
       # published in this run or npm already had the version (recovery re-run).
       # Each attempt re-checks npm first, because the registry reads `mcpName`
       # from the published npm package and npm has lagged a publish by ~80 s,
-      # then logs in again (the registry token is short-lived). No sleep after
-      # the last attempt; `timeout` bounds a stalled publisher call.
+      # then logs in again (the registry token is short-lived).
+      #
+      # Two separate budgets, because the failures differ. Run 38102021969
+      # (0.2.23) exhausted the old 4 x 30 s loop in 90 s with every attempt
+      # failing within 0.2 s, i.e. `npm view` not yet seeing a version that
+      # `npm publish` had just landed; a rerun minutes later went green. So npm
+      # visibility gets its own ~5 min wait (10 attempts, backoff 10..40 s). It
+      # runs here, AFTER `npm publish`, where the npm identity is already spent,
+      # so waiting longer holds nothing extra mintable. Login and publish failures
+      # are real, not lag, so they keep a short retry (3 attempts, 10 s apart).
+      # Each failure names its sub-step and `mcp-publisher` stderr is left
+      # unredirected so its own message reaches the log (OIDC prints no token).
+      # `timeout` bounds every call that can stall.
       - name: Publish to the MCP Registry
         id: mcpreg
         if: ${{ steps.mode.outputs.dry != 'true' && steps.bump.outputs.release == 'true' && (steps.publish.outputs.published == 'true' || steps.already.outputs.onnpm == 'true') }}
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          for attempt in 1 2 3 4; do
-            if npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null 2>&1 \
-               && timeout 60 /tmp/mcp-publisher login github-oidc \
-               && timeout 120 /tmp/mcp-publisher publish; then
+          visible=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if timeout 15 npm view "@urbankitstudio/mcp-atlas@$VERSION" version >/dev/null; then
+              visible=true
+              break
+            fi
+            if [ "$attempt" -lt 10 ]; then
+              wait_s=$(( attempt * 10 > 40 ? 40 : attempt * 10 ))
+              echo "npm not visible yet: $VERSION missing from the registry (check $attempt of 10); retrying in $wait_s s"
+              sleep "$wait_s"
+            fi
+          done
+          if [ "$visible" != "true" ]; then
+            echo "::error::MCP Registry publish failed for $VERSION: npm still did not show the version after 10 checks (npm visibility lag, or the npm publish did not land)."
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            failed=""
+            if ! timeout 60 /tmp/mcp-publisher login github-oidc; then
+              failed="login"
+            elif ! timeout 120 /tmp/mcp-publisher publish; then
+              failed="publish"
+            fi
+            if [ -z "$failed" ]; then
               echo "published=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ "$attempt" -lt 4 ]; then
-              echo "registry attempt $attempt failed (npm not visible yet, or login/publish failed); retrying in 30 s"
-              sleep 30
+            if [ "$attempt" -lt 3 ]; then
+              echo "registry attempt $attempt failed at mcp-publisher $failed; retrying in 10 s"
+              sleep 10
+            else
+              echo "registry attempt $attempt failed at mcp-publisher $failed"
             fi
           done
-          echo "::error::MCP Registry publish failed 4 times for $VERSION."
+          echo "::error::MCP Registry publish failed 3 times for $VERSION."
           exit 1
 
       # A zero exit from the publisher is not proof. Read the entry back.
