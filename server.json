@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.urbankitstudio/mcp-atlas",
-  "description": "Owner and APN lookup across 286 US counties (297 ArcGIS endpoints). No API key needed.",
+  "description": "Owner and APN lookup across 303 US counties (322 ArcGIS endpoints). No API key needed.",
   "repository": {
     "url": "https://github.com/urbankitstudio/mcp-atlas",
     "source": "github"
   },
-  "version": "0.2.22",
+  "version": "0.2.23",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@urbankitstudio/mcp-atlas",
-      "version": "0.2.22",
+      "version": "0.2.23",
       "transport": {
         "type": "stdio"
       }

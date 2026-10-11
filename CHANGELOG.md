@@ -6,6 +6,15 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.23 — 2026-10-11
+Data update: atlas ^0.6.27, 303 counties and 322 endpoints, 321 of them
+live. New counties: Adams, Arapahoe, Boulder, Douglas, Larimer, Mesa, Park
+and Weld CO; Gallatin MT; Brunswick, Iredell, Johnston, New Hanover, Onslow
+and Union NC; Berkeley and Wood WV. New York State's own query service has
+hung since 2026-10-09; Onondaga, Suffolk and Westchester now try the
+official NYSGIS mirror first, and the NYC boroughs try it third. No tool or
+API change.
+
 ## 0.2.22 — 2026-10-10
 Data update: atlas ^0.6.25, 286 counties and 297 endpoints, 296 of them
 live. New counties are Clay, Craighead, Faulkner, Garland, Saline and
