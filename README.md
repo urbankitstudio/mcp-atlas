@@ -214,8 +214,9 @@ covered city.
 - Like the county tools, this one fetches nothing. It answers from the atlas
   package and hands you URLs to run yourself. Socrata throttles anonymous
   callers, so send your own `X-App-Token` header for volume.
-- It is the same tool the hosted UrbanKit MCP serves, with the same inputs and
-  response keys.
+- It is the same tool the hosted UrbanKit MCP serves, with the same advertised
+  inputs and response keys. The stdio server holds arguments to that schema
+  strictly: `kind` must be `violations`, `permits` or `zoning` in lower case.
 
 **Example prompt:** "Where do I pull open building permits for 600 Commerce St, Dallas?"
 

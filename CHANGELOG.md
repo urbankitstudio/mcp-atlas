@@ -17,6 +17,10 @@ is the stdio twin of the hosted UrbanKit MCP tool of the same name: the same
 inputs and caps (city 80, state 40, street 120 characters; the same kind enum),
 the same street handling (cut at the first comma, trimmed), and the same
 snake_case response keys for the list, found, ambiguous and not-found answers.
+One difference: the stdio server validates arguments against the advertised
+schema before the tool runs, so `kind` must be one of the three lower-case
+values and an over-length or non-string argument is refused with an input
+error; the hosted tool is more lenient (it lower-cases `kind` and trims).
 Dependency: atlas ^0.6.31, which adds the city exports (`listCities`,
 `findCity`, `cityDatasets`, `buildCityQuery` and others). The atlas county data
 is unchanged (306 counties, 324 endpoints, 323 of them live). Like the county

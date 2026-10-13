@@ -215,7 +215,7 @@ test("over-long, malformed and out-of-enum arguments are errors, not answers", (
   assert.equal(CITY_STREET_MAX_LEN, 120);
 });
 
-test("the kind argument is case-insensitive, as on the hosted tool", () => {
+test("the handler lower-cases kind (defence in depth: over stdio the SDK schema refuses 'PERMITS' first)", () => {
   assert.equal(answer({ city: "dallas", kind: "PERMITS" }).datasets[0].kind, "permits");
 });
 
