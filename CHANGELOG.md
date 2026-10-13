@@ -6,6 +6,12 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.26 — 2026-10-12
+Data update: atlas ^0.6.29, 306 counties and 324 endpoints, 323 of them
+live. New counties: Racine WI and Westmoreland PA, each with a live
+endpoint. Casey KY is recorded as having no public REST service, so it is
+listed without an endpoint. No tool or API change.
+
 ## 0.2.25 — 2026-10-12
 Security: dependency advisories cleared. `@modelcontextprotocol/sdk` moves to
 ^1.32.1 (GHSA-6qxp-vccf-f47h, OAuth client credentials), and the lockfile
