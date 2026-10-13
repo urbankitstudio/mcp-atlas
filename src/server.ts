@@ -28,6 +28,8 @@ import {
   ownerSearchPolicy,
   ownerWhereClause,
   ownerCoverageLabel,
+  buildArcgisOwnerQuery,
+  ownerQueryRowsNote,
   escapeSqlLiteral,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
@@ -46,7 +48,7 @@ const REQUEST_COUNTY_HINT =
   'POST {"county_fips": "<5 digits>"} (or {"state": "<state-slug>", "county": "<county-slug>"}) ' +
   "to https://urbankitstudio.com/api/atlas/request, or call the hosted MCP tool request_county at https://urbankitstudio.com/api/mcp, " +
   'adding their email ("requester_email") if they want to be told when it ships. Requesting is free.';
-import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
+import type { CountyRecord } from "@urbankitstudio/atlas";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,27 +78,6 @@ function scopeLine(owner: OwnerSearchPolicy): string | null {
   return owner.scopeWhere
     ? `Scope: ${owner.scopeWhere} (shared layer; AND this into every query)`
     : null;
-}
-
-function buildArcgisOwnerQuery(
-  endpoint: EndpointRecord,
-  owner: OwnerSearchPolicy,
-  ownerQuery: string,
-): string {
-  if (!owner.field) return "";
-  const where = encodeURIComponent(ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery));
-  const liveFields = endpoint.searchFields
-    .filter((sf) => sf.searchable)
-    .map((sf) => sf.name)
-    .join(",");
-  return (
-    `${endpoint.url}/query` +
-    `?where=${where}` +
-    `&outFields=${liveFields}` +
-    `&returnGeometry=false` +
-    `&f=json` +
-    `&resultRecordCount=25`
-  );
 }
 
 function formatCountySummary(c: CountyRecord): string {
@@ -550,7 +531,7 @@ server.registerTool(
           queryUrl,
           ``,
           `Notes:`,
-          `  - Returns up to 25 records`,
+          `  - ${ownerQueryRowsNote(ep)}`,
           `  - Partial name match (e.g. "SMITH" matches "SMITH JOHN" and "BLACKSMITH LLC")`,
           `  - Case-insensitive`,
           `  - Add &token=<your-token> if the service requires auth (this county is public)`,

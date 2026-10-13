@@ -11,7 +11,12 @@ Dependency update: atlas ^0.6.30. The atlas data is unchanged (306 counties,
 324 endpoints, 323 of them live). The package adds an optional record field,
 `supportsPagination: false`, for a layer that refuses `resultRecordCount` and
 `resultOffset`, and an `offersPagination` reader for it; no bundled record
-carries the flag yet. No tool or API change.
+carries the flag yet. Behaviour: `get_parcel_endpoint` and `build_owner_query`
+now leave `resultRecordCount=25` off the query URL of a layer flagged
+`supportsPagination: false` (it would answer HTTP 200 with a 400 error body),
+and `build_owner_query` says that the layer does not paginate and names its
+`maxRecordCount`. Paginating layers are unchanged byte for byte. No tool
+description or schema change.
 
 ## 0.2.26 — 2026-10-12
 Data update: atlas ^0.6.29, 306 counties and 324 endpoints, 323 of them

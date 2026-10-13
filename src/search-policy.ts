@@ -32,7 +32,7 @@
  * state. ownerWhereClause ANDs the scope in front of every owner match.
  */
 
-import { isReviewedUnservable, reviewedCapability } from "@urbankitstudio/atlas";
+import { isReviewedUnservable, offersPagination, reviewedCapability } from "@urbankitstudio/atlas";
 import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
 
 /**
@@ -168,4 +168,47 @@ export function ownerCoverageLabel(
   }
   if (kinds.includes("owner_unsearchable")) return "APN only (owner column not searchable)";
   return "APN only";
+}
+
+/**
+ * The ready-to-fire owner query URL for an endpoint, or "" when no owner column
+ * is offered. `resultRecordCount=25` is added ONLY where the layer pages: a
+ * layer flagged `supportsPagination: false` answers that parameter with HTTP 200
+ * and a 400 error body instead of rows. The rule is the package's
+ * `offersPagination`, read here, never re-derived.
+ */
+export function buildArcgisOwnerQuery(
+  endpoint: Pick<EndpointRecord, "url" | "searchFields" | "supportsPagination">,
+  owner: OwnerSearchPolicy,
+  ownerQuery: string,
+): string {
+  if (!owner.field) return "";
+  const where = encodeURIComponent(ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery));
+  const liveFields = endpoint.searchFields
+    .filter((sf) => sf.searchable)
+    .map((sf) => sf.name)
+    .join(",");
+  return (
+    `${endpoint.url}/query` +
+    `?where=${where}` +
+    `&outFields=${liveFields}` +
+    `&returnGeometry=false` +
+    `&f=json` +
+    (offersPagination(endpoint) ? `&resultRecordCount=25` : "")
+  );
+}
+
+/** The build_owner_query note on how many rows the query returns. */
+export function ownerQueryRowsNote(
+  endpoint: Pick<EndpointRecord, "supportsPagination" | "maxRecordCount">,
+): string {
+  if (offersPagination(endpoint)) return "Returns up to 25 records";
+  const cap =
+    typeof endpoint.maxRecordCount === "number"
+      ? `at most ${endpoint.maxRecordCount} records`
+      : "at most the layer's own record cap";
+  return (
+    `This layer does not paginate, so the query carries no resultRecordCount and returns ${cap}; ` +
+    "exceededTransferLimit in the response says whether more matched, so narrow the where clause instead of paging"
+  );
 }

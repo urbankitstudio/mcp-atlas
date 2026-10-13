@@ -125,6 +125,10 @@ async function run() {
   assert(queryText.includes("TaxName"), "build_owner_query uses TaxName field");
   assert(queryText.includes("UPPER(TaxName)"), "build_owner_query uses UPPER() wrapper");
   assert(queryText.includes("SMITH"), "build_owner_query includes owner name");
+  // Kane pages, so the server must still send resultRecordCount=25 and say so
+  // (atlas 0.6.30 pagination flag; the refusing branch is covered in test:policy).
+  assert(queryText.includes("&resultRecordCount=25"), "build_owner_query keeps resultRecordCount=25 on a paginating layer");
+  assert(queryText.includes("  - Returns up to 25 records\n"), "build_owner_query keeps the 'Returns up to 25 records' note on a paginating layer");
 
   // Step 6b: an owner name cannot escape the SQL string literal.
   //
