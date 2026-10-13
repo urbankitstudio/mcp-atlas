@@ -94,6 +94,20 @@ async function run() {
   assert(toolNames.includes("find_county"), "find_county tool registered");
   assert(toolNames.includes("get_parcel_endpoint"), "get_parcel_endpoint tool registered");
   assert(toolNames.includes("build_owner_query"), "build_owner_query tool registered");
+  assert(toolNames.includes("get_city_datasets"), "get_city_datasets tool registered");
+  assert(toolNames.length === 5, `tools/list returns exactly 5 tools (got ${toolNames.length}: ${toolNames.join(", ")})`);
+  // The hosted twin's argument caps and enum, as the client sees them.
+  const cityTool = (toolsResp.result?.tools ?? []).find((t) => t.name === "get_city_datasets");
+  const cityProps = cityTool?.inputSchema?.properties ?? {};
+  assert(
+    cityProps.city?.maxLength === 80 && cityProps.state?.maxLength === 40 && cityProps.street?.maxLength === 120,
+    "get_city_datasets advertises the hosted tool's maxLengths (80 / 40 / 120)",
+  );
+  assert(
+    JSON.stringify(cityProps.kind?.enum) === JSON.stringify(["violations", "permits", "zoning"]),
+    "get_city_datasets advertises the hosted tool's kind enum",
+  );
+  assert(!(cityTool?.inputSchema?.required ?? []).length, "get_city_datasets requires no argument (no city lists every city)");
 
   // Step 4: call list_counties with state=IL
   sendMessage(proc, 3, "tools/call", {
@@ -314,6 +328,59 @@ async function run() {
   assert(
     missQuery.includes("not found in state") && missQuery.includes("https://urbankitstudio.com/api/atlas/request"),
     "build_owner_query's not-found answer carries the hosted request URL",
+  );
+
+  // Step 10 (0.3.0): get_city_datasets. Answers from the bundled registry; the
+  // server never fetches, so the URL it returns is a string for the agent to run.
+  sendMessage(proc, 17, "tools/call", {
+    name: "get_city_datasets",
+    arguments: { city: "Dallas", kind: "permits", street: "600 Commerce St, Dallas, TX" },
+  });
+  const dallasResp = await readResponse(proc);
+  let dallas = {};
+  try {
+    dallas = JSON.parse(dallasResp.result?.content?.[0]?.text ?? "");
+  } catch {
+    /* left empty: the asserts below fail with a clear message */
+  }
+  assert(dallasResp.result?.isError !== true, "get_city_datasets is not an error for Dallas");
+  assert(dallas.found === true && dallas.city?.slug === "dallas", "get_city_datasets finds Dallas");
+  assert(
+    typeof dallas.datasets?.[0]?.endpoint === "string" && dallas.datasets[0].endpoint.startsWith("https://"),
+    "get_city_datasets returns a Dallas endpoint",
+  );
+  assert(
+    dallas.datasets?.[0]?.query_url?.startsWith(dallas.datasets[0].endpoint) &&
+      dallas.datasets[0].query_url.includes("600%20Commerce%20St") &&
+      !dallas.datasets[0].query_url.includes("%2C"),
+    "get_city_datasets returns a ready query_url for the street, cut at the comma",
+  );
+
+  sendMessage(proc, 18, "tools/call", {
+    name: "get_city_datasets",
+    arguments: { city: "Nowhereville", state: "ZZ" },
+  });
+  const noCityResp = await readResponse(proc);
+  let noCity = {};
+  try {
+    noCity = JSON.parse(noCityResp.result?.content?.[0]?.text ?? "");
+  } catch {
+    /* see above */
+  }
+  assert(noCity.found === false, "get_city_datasets answers found:false for an unknown city");
+  assert(!("datasets" in noCity), "get_city_datasets returns no dataset for an unknown city");
+
+  sendMessage(proc, 19, "tools/call", { name: "get_city_datasets", arguments: {} });
+  const allCitiesResp = await readResponse(proc);
+  let allCities = {};
+  try {
+    allCities = JSON.parse(allCitiesResp.result?.content?.[0]?.text ?? "");
+  } catch {
+    /* see above */
+  }
+  assert(
+    allCities.total_cities > 0 && allCities.cities?.some((c) => c.slug === "dallas"),
+    "get_city_datasets with no city lists the covered cities",
   );
 
   // Cleanup

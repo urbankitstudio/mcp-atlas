@@ -8,7 +8,7 @@ Query the parcel ArcGIS REST endpoints of 306 counties across 51 US states (50 s
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 306 counties across 51 US states (50 states plus DC), 324 endpoints, 323 of them live (atlas 0.6.30).
+**Coverage:** 306 counties across 51 US states (50 states plus DC), 324 endpoints, 323 of them live (atlas 0.6.31).
 
 ---
 
@@ -56,8 +56,9 @@ Then use `mcp-atlas` as the command instead of `npx -y @urbankitstudio/mcp-atlas
 
 ## Tools
 
-The four tools are one pipeline, and what separates them is how precisely you
-can already name the county:
+The first four tools are one county pipeline, and what separates them is how
+precisely you can already name the county. The fifth, `get_city_datasets`, is
+separate: it answers about a city, not a county.
 
 | You have | Use | You get |
 |---|---|---|
@@ -65,6 +66,7 @@ can already name the county:
 | A vague, misspelled or FIPS reference | `find_county` | Every county that reference matches, named, each with its record |
 | An exact state and county | `get_parcel_endpoint` | That one county's endpoint URL, layer, fields and sample query |
 | A county and an owner's name | `build_owner_query` | A runnable URL that searches for that name |
+| A city, and optionally a street | `get_city_datasets` | That city's code-violation, building-permit and zoning-case datasets, each with a runnable query URL |
 
 `find_county` and `get_parcel_endpoint` return the same per-county record. They
 differ in how you address the county: `find_county` accepts an uncertain
@@ -178,6 +180,62 @@ https://gistech.countyofkane.org/arcgis/rest/services/KanePINList/MapServer/0/qu
   ?where=UPPER(TaxName)%20LIKE%20UPPER('%25SMITH%25')
   &outFields=PIN,TaxName,SiteAddress,SiteCity,MailingAddress
   &returnGeometry=false&f=json&resultRecordCount=25
+```
+
+---
+
+### `get_city_datasets`
+
+City code-violation, building-permit and zoning-case datasets. Give a city
+slug (`fort-worth`) or name (`Fort Worth`, `Fort Worth, TX`), optionally a
+`kind` and a street line, and it returns each verified dataset for that city:
+the endpoint and provider (Socrata, ArcGIS, CKAN or CARTO), the column the
+address is matched on, the date field, any filter that is part of the dataset's
+definition, coverage and freshness notes, and, when you pass a street, a ready
+`query_url` to run against the city's own server. Omit `city` to list every
+covered city.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `city` | string (max 80) | No | City slug or name; omit to list covered cities |
+| `state` | string (max 40) | No | Two-letter code or state name, for a name used in two states |
+| `kind` | `violations` \| `permits` \| `zoning` | No | Return only that kind of dataset |
+| `street` | string (max 120) | No | Street line only, such as `Commerce` or `600 Commerce St`. Cut at the first comma, so a full address is safe to pass |
+
+- A name shared by two cities comes back as `found: false, ambiguous: true` with
+  the candidates; repeat with `state`. A city outside the registry comes back as
+  `found: false` with the covered cities in its state, or in its county when the
+  reference names one.
+- `query_url` is `null` for a point lookup (a polygon docket or a current-zoning
+  map); the dataset's `query_template` then carries the request with a
+  `{LON},{LAT}` placeholder to fill in.
+- Scope is the city's limits, not the county. These tables hold no owner data:
+  for a parcel's owner, use the county tools above.
+- Like the county tools, this one fetches nothing. It answers from the atlas
+  package and hands you URLs to run yourself. Socrata throttles anonymous
+  callers, so send your own `X-App-Token` header for volume.
+- It is the same tool the hosted UrbanKit MCP serves, with the same inputs and
+  response keys.
+
+**Example prompt:** "Where do I pull open building permits for 600 Commerce St, Dallas?"
+
+**Example output (abridged):**
+```json
+{
+  "found": true,
+  "city": { "slug": "dallas", "name": "Dallas", "state_abbrev": "TX", "county_slug": "dallas-county" },
+  "street": "600 Commerce St",
+  "datasets": [
+    {
+      "kind": "permits",
+      "provider": "socrata",
+      "endpoint": "https://www.dallasopendata.com/resource/e7gq-4sah.json",
+      "address_field": "street_address",
+      "street_used": "600 Commerce St",
+      "query_url": "https://www.dallasopendata.com/resource/e7gq-4sah.json?$where=upper(street_address)%20like%20upper('%25600%20Commerce%20St%25')&$limit=30"
+    }
+  ]
+}
 ```
 
 ---

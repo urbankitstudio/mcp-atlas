@@ -4,8 +4,9 @@ Rules for any Claude session working in this repository. Keep this file under 80
 
 ## What this is
 
-`@urbankitstudio/mcp-atlas` is a stdio MCP server with four tools (`list_counties`,
-`find_county`, `get_parcel_endpoint`, `build_owner_query`). It answers from
+`@urbankitstudio/mcp-atlas` is a stdio MCP server with five tools (`list_counties`,
+`find_county`, `get_parcel_endpoint`, `build_owner_query`, and `get_city_datasets` since
+0.3.0, the twin of the hosted tool of the same name). It answers from
 `@urbankitstudio/atlas`, UrbanKit Studio's registry of verified county parcel ArcGIS
 endpoints, and bundles no data of its own: the atlas is a runtime dependency. No lockfile
 ships in the tarball, so an install resolves the published range fresh. It publishes to npm
