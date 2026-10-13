@@ -6,6 +6,13 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.2.27 — 2026-10-13
+Dependency update: atlas ^0.6.30. The atlas data is unchanged (306 counties,
+324 endpoints, 323 of them live). The package adds an optional record field,
+`supportsPagination: false`, for a layer that refuses `resultRecordCount` and
+`resultOffset`, and an `offersPagination` reader for it; no bundled record
+carries the flag yet. No tool or API change.
+
 ## 0.2.26 — 2026-10-12
 Data update: atlas ^0.6.29, 306 counties and 324 endpoints, 323 of them
 live. New counties: Racine WI and Westmoreland PA, each with a live
