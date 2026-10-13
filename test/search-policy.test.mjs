@@ -17,6 +17,8 @@ import {
   ownerSearchPolicy,
   ownerWhereClause,
   ownerCoverageLabel,
+  buildArcgisOwnerQuery,
+  ownerQueryRowsNote,
   ATTRIBUTE_SEARCH_UNSUPPORTED_REASON,
   OWNER_UNSEARCHABLE_REASON,
 } from "../dist/search-policy.js";
@@ -150,4 +152,35 @@ test("synthetic: a scoped layer's WHERE begins with the scope in parentheses", (
   assert.equal(p.scopeWhere, "COUNTY='ESSEX'");
   const where = ownerWhereClause(p.field, p.scopeWhere, "O'NEIL");
   assert.equal(where, "(COUNTY='ESSEX') AND UPPER(OWNER_NAME) LIKE UPPER('%O''NEIL%')");
+});
+
+// atlas 0.6.30: a layer flagged `supportsPagination: false` answers
+// resultRecordCount with HTTP 200 and a 400 error body, so the owner query must
+// not carry it. Both records are synthetic so they hold whatever the registry carries.
+const OWNER_FIELDS = [{ name: "OWNER_NAME", label: "Owner", searchable: true }];
+const pagingEndpoint = { url: "https://gis.example.gov/arcgis/rest/services/P/MapServer/0", searchFields: OWNER_FIELDS };
+const flaggedEndpoint = { ...pagingEndpoint, supportsPagination: false, maxRecordCount: 1000 };
+
+test("synthetic: a paginating layer's owner query carries resultRecordCount=25", () => {
+  const p = ownerSearchPolicy({}, pagingEndpoint);
+  const url = buildArcgisOwnerQuery(pagingEndpoint, p, "SMITH");
+  assert.ok(url.endsWith("&f=json&resultRecordCount=25"), url);
+  assert.equal(ownerQueryRowsNote(pagingEndpoint), "Returns up to 25 records");
+});
+
+test("synthetic: a layer that refuses pagination gets a query without resultRecordCount and a note naming its cap", () => {
+  const p = ownerSearchPolicy({}, flaggedEndpoint);
+  const url = buildArcgisOwnerQuery(flaggedEndpoint, p, "SMITH");
+  assert.ok(url.endsWith("&returnGeometry=false&f=json"), url);
+  assert.ok(!/resultRecordCount|resultOffset/i.test(url), url);
+  const note = ownerQueryRowsNote(flaggedEndpoint);
+  assert.match(note, /does not paginate/);
+  assert.match(note, /at most 1000 records/);
+  assert.match(note, /exceededTransferLimit/);
+  assert.ok(!note.includes("up to 25"), note);
+});
+
+test("synthetic: a flagged layer with no declared cap still says it does not paginate", () => {
+  const bare = { ...flaggedEndpoint, maxRecordCount: undefined };
+  assert.match(ownerQueryRowsNote(bare), /does not paginate.*at most the layer's own record cap/);
 });
