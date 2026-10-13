@@ -10,6 +10,8 @@
  *   find_county         – fuzzy-match a county, return endpoints + searchable fields
  *   get_parcel_endpoint – return the full REST service URL + ready sample query
  *   build_owner_query   – construct exact ArcGIS REST query for an owner name
+ *   get_city_datasets   – a city's code-violation, building-permit and zoning-case
+ *                         datasets, with a ready query URL for a street
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -33,6 +35,12 @@ import {
   escapeSqlLiteral,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
+import {
+  getCityDatasets,
+  CITY_REF_MAX_LEN,
+  CITY_STATE_MAX_LEN,
+  CITY_STREET_MAX_LEN,
+} from "./city-datasets.js";
 
 // Re-exported so the package's public surface is unchanged by the move.
 export { escapeSqlLiteral };
@@ -125,7 +133,7 @@ const server = new McpServer(
   { name: "mcp-atlas", version: PKG_VERSION },
   {
     instructions:
-      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL.",
+      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL. get_city_datasets describes a covered city's code-violation, building-permit and zoning-case datasets and returns a ready query URL for a street; it holds no owner data.",
   }
 );
 
@@ -552,6 +560,47 @@ server.registerTool(
 
     return {
       content: [{ type: "text" as const, text: results.join("\n\n" + "=".repeat(60) + "\n\n") }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_city_datasets
+// ---------------------------------------------------------------------------
+
+// The twin of the hosted MCP tool of the same name: same inputs and caps, same
+// answers. The logic is in ./city-datasets.ts, which reads only the package's
+// city exports and never fetches, so this server stays network-free.
+server.registerTool(
+  "get_city_datasets",
+  {
+    title: "Find a city's violation, permit and zoning datasets",
+    description:
+      "Find the public code-violation, building-permit and zoning-case datasets UrbanKit has verified for a U.S. city, and how to query them by street. Give a city slug or name (state optional), optionally a kind ('violations', 'permits' or 'zoning') and a street; omit city to list every covered city. Returns each dataset's endpoint (Socrata, ArcGIS, CKAN or CARTO), the address column it searches, its date field and filter, coverage notes, and a ready query URL you run yourself against the city's server. This server does not execute the query and returns no city records: fetch the returned URL yourself. Returns no owner data: for a parcel's owner use get_parcel_endpoint or build_owner_query.",
+    inputSchema: {
+      city: z
+        .string()
+        .max(CITY_REF_MAX_LEN)
+        .optional()
+        .describe("City slug ('fort-worth') or name ('Fort Worth', 'Fort Worth, TX'). Omit to list covered cities."),
+      state: z
+        .string()
+        .max(CITY_STATE_MAX_LEN)
+        .optional()
+        .describe("Optional 2-letter code or state name, for a name used in two states."),
+      kind: z.enum(["violations", "permits", "zoning"]).optional(),
+      street: z
+        .string()
+        .max(CITY_STREET_MAX_LEN)
+        .optional()
+        .describe("Optional street line only, e.g. 'Commerce' or '600 Commerce St'. A street name alone returns the most."),
+    },
+  },
+  ({ city, state, kind, street }) => {
+    const result = getCityDatasets({ city, state, kind, street });
+    return {
+      content: [{ type: "text" as const, text: result.text }],
+      ...(result.isError ? { isError: true } : {}),
     };
   }
 );

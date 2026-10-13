@@ -6,6 +6,29 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.0 — 2026-10-13
+New tool: `get_city_datasets`, a fifth tool beside the four county tools. Given a
+city (slug or name, state optional), an optional kind (`violations`, `permits`
+or `zoning`) and an optional street, it returns the verified city
+code-violation, building-permit and zoning-case datasets: provider, endpoint,
+address and date columns, scope filter, coverage and freshness notes, and a
+ready `query_url` for the street. With no city it lists every covered city. It
+is the stdio twin of the hosted UrbanKit MCP tool of the same name: the same
+inputs and caps (city 80, state 40, street 120 characters; the same kind enum),
+the same street handling (cut at the first comma, trimmed), and the same
+snake_case response keys for the list, found, ambiguous and not-found answers.
+One difference: the stdio server validates arguments against the advertised
+schema before the tool runs, so `kind` must be one of the three lower-case
+values and an over-length or non-string argument is refused with an input
+error; the hosted tool is more lenient (it lower-cases `kind` and trims).
+Dependency: atlas ^0.6.31, which adds the city exports (`listCities`,
+`findCity`, `cityDatasets`, `buildCityQuery` and others). The atlas county data
+is unchanged (306 counties, 324 endpoints, 323 of them live). Like the county
+tools it fetches nothing: it answers from the bundled registry and returns URLs
+for the caller to run. The four existing tool descriptions and schemas are
+unchanged byte for byte; the server `instructions` text now mentions the new
+tool. `npm run test:policy` also runs the new `test/city-datasets.test.mjs`.
+
 ## 0.2.27 — 2026-10-13
 Dependency update: atlas ^0.6.30. The atlas data is unchanged (306 counties,
 324 endpoints, 323 of them live). The package adds an optional record field,
