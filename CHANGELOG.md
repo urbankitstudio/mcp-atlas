@@ -6,6 +6,19 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.4 — 2026-10-14
+
+Data update: atlas ^0.6.35.
+
+- `get_city_datasets` builds a more tolerant street match, through atlas's
+  `buildCityQuery`: it now finds records in the five city datasets where an exact
+  street string missed, for example Orlando's double-spaced addresses.
+- One new county, Montgomery TN (47125), with parcel id and situs address only.
+  Its public parcel layer has no owner fields, so owner lookups return nothing there.
+- Coverage is now 395 counties and 413 endpoints, 412 of them live.
+
+No tool, schema or API change.
+
 ## 0.3.3 — 2026-10-14
 
 Data update: atlas ^0.6.34, which covers Mississippi statewide (all 82 counties).
