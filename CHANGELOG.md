@@ -6,6 +6,14 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.2 — 2026-10-14
+
+Data update: atlas ^0.6.33, which carries city data only. `get_city_datasets` now
+answers for 30 cities with code-violation or building-permit datasets (up from
+20) and 19 with zoning-case dockets (up from 17), Los Angeles among the new ones.
+Every new dataset carries `latestRecordDate`. County coverage is unchanged:
+314 counties and 331 endpoints, 330 of them live. No tool, schema or API change.
+
 ## 0.3.1 — 2026-10-14
 
 Data update: atlas ^0.6.32, 314 counties and 331 endpoints, 330 of them live.
