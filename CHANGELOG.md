@@ -6,6 +6,21 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.5 — 2026-10-14
+
+Data update: atlas ^0.6.36.
+
+- `get_city_datasets` reads a typed address with a house number the same way across
+  city datasets, through atlas's `buildCityQuery`. On the three datasets that keep the
+  number and the street in separate columns (Los Angeles violations, Fort Worth permits,
+  Scottsdale violations), `2600 South Blvd` now searches the street `South`, `1700 E Q St`
+  searches `Q`, and `100 N Court` searches `Court`, where before they searched the
+  street type or the direction. An input with no street left to search (`100 %`) is
+  searched as typed and finds no rows, instead of unrelated rows at that number.
+- Coverage is unchanged: 395 counties and 413 endpoints, 412 of them live.
+
+No tool, schema or API change.
+
 ## 0.3.4 — 2026-10-14
 
 Data update: atlas ^0.6.35.
