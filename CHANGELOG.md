@@ -6,6 +6,15 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.1 — 2026-10-14
+
+Data update: atlas ^0.6.32, 314 counties and 331 endpoints, 330 of them live.
+Eight new counties, all ones that callers had asked for and the atlas did not
+carry. Berks PA, Bedford PA, Salem city VA, Nueces TX, Hidalgo TX, Brazos TX
+and Ector TX each come with a verified endpoint. Webb TX is a researched stub
+with no public REST. No tool, schema or API change; the five tools answer
+exactly as in 0.3.0, over more counties.
+
 ## 0.3.0 — 2026-10-13
 New tool: `get_city_datasets`, a fifth tool beside the four county tools. Given a
 city (slug or name, state optional), an optional kind (`violations`, `permits`
