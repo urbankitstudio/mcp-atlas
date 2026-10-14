@@ -6,6 +6,12 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.3 — 2026-10-14
+
+Data update: atlas ^0.6.34, which covers Mississippi statewide (all 82 counties).
+Coverage is now 394 counties and 412 endpoints, 411 of them live, up from 314
+counties and 331 endpoints. No tool, schema or API change.
+
 ## 0.3.2 — 2026-10-14
 
 Data update: atlas ^0.6.33, which carries city data only. `get_city_datasets` now
