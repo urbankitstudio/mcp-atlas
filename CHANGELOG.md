@@ -6,6 +6,10 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.6 — 2026-10-17
+
+Fix: the request hint on a county miss (find_county, get_parcel_endpoint, build_owner_query) told agents to POST {"state", "county"} to /api/atlas/request. That endpoint keeps only county_fips, or state_slug + county_slug, so the advertised body failed with 400 county-required. The hint now names state_slug and county_slug, and the smoke test asserts the keys, not only the URL. Found by the UKS coverage build reading this repo.
+
 ## 0.3.5 — 2026-10-14
 
 Data update: atlas ^0.6.36.

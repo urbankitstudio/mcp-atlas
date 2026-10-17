@@ -53,7 +53,7 @@ const PKG_VERSION: string = JSON.parse(
 // is pointed at the hosted request path instead (free; UKS PR #941, 2026-10-06).
 const REQUEST_COUNTY_HINT =
   "This county is not in the UrbanKit atlas yet. Offer to request it for the person you are helping; if they say yes, " +
-  'POST {"county_fips": "<5 digits>"} (or {"state": "<state-slug>", "county": "<county-slug>"}) ' +
+  'POST {"county_fips": "<5 digits>"} (or {"state_slug": "<state-slug>", "county_slug": "<county-slug>"}) ' +
   "to https://urbankitstudio.com/api/atlas/request, or call the hosted MCP tool request_county at https://urbankitstudio.com/api/mcp, " +
   'adding their email ("requester_email") if they want to be told when it ships. Requesting is free.';
 import type { CountyRecord } from "@urbankitstudio/atlas";
