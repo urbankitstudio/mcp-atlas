@@ -309,6 +309,12 @@ async function run() {
       missFind.includes("Offer to request it for the person you are helping"),
     "find_county's no-match answer carries the hosted request URL and tool name",
   );
+  // The endpoint's parser keeps only county_fips or state_slug + county_slug and
+  // drops other keys, so a body built from bare "state"/"county" 400s.
+  assert(
+    missFind.includes('"state_slug"') && missFind.includes('"county_slug"') && !missFind.includes('{"state":'),
+    "the request hint names the body keys the request endpoint accepts",
+  );
 
   sendMessage(proc, 15, "tools/call", {
     name: "get_parcel_endpoint",
