@@ -6,6 +6,23 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.7 — 2026-10-17
+
+Data update: atlas ^0.6.37.
+
+- North Carolina: 83 counties added from the statewide parcel set, plus Union County, Ohio.
+- Endpoints that served another county's parcels are fixed. Fayette KY (Lexington) now
+  uses LFUCG's own layer and Summit OH its correct layer. Jackson MO and Montgomery OH list
+  no endpoint until a correct one is verified.
+- Shelby County, Tennessee no longer lists an endpoint: it is withheld pending written
+  consent from Shelby County ReGIS. `find_county` still returns the record, with the
+  reason in its notes; `get_parcel_endpoint` and `build_owner_query` return no URL for it.
+- The ten Colorado county records served from the State of Colorado Public Parcels
+  service carry the State's attribution line (Denver, on its own service, does not need it).
+- Coverage: 479 counties and 494 endpoints, 493 of them live (was 395, 413 and 412).
+
+No tool, schema or API change.
+
 ## 0.3.6 — 2026-10-17
 
 Fix: the request hint on a county miss (find_county, get_parcel_endpoint, build_owner_query) told agents to POST {"state", "county"} to /api/atlas/request. That endpoint keeps only county_fips, or state_slug + county_slug, so the advertised body failed with 400 county-required. The hint now names state_slug and county_slug, and the smoke test asserts the keys, not only the URL. Found by the UKS coverage build reading this repo.
