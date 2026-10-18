@@ -8,7 +8,7 @@ Query the parcel ArcGIS REST endpoints of 494 counties across 51 US states (50 s
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 494 counties across 51 US states (50 states plus DC), 494 endpoints, 493 of them live (atlas 0.6.38). 467 of the counties have an endpoint; for the other 27 the atlas records why not (see "A county we cannot serve" below).
+**Coverage:** 494 counties across 51 US states (50 states plus DC), 494 endpoints, 493 of them live (atlas 0.6.39). 467 of the counties have an endpoint; for the other 27 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
