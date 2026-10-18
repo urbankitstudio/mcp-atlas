@@ -20,6 +20,12 @@ package's `coverageAnswer()`, instead of "No county matched" or "no REST endpoin
   them, Shelby TN among them): the reason in one sentence, the date we last checked, the next
   planned check when one is set, the county's own office and paid product where it has them,
   and the same request body. `find_county` still prints the record's notes after it.
+- Fix: `find_county` takes the last word of a query for a state only when it names one (an
+  abbreviation, a name or a slug). Before, any last word of two or more than three letters
+  counted, so "Kane County", "Orleans Parish" and "Los Angeles" matched nothing, and the
+  not-in-atlas answer would have told an agent to request counties the atlas serves. They
+  resolve now, as do "Cook County IL" and "St. Louis County MO". A state name of two words
+  still does not parse as a suffix ("Kings New York" matches nothing; "Kings NY" works).
 - Served counties print exactly what they printed before. `list_counties` still lists served
   counties only; "served" is now the package's `countyHasEndpoint()`, which agrees with the
   old endpoint-count test on all 494 records.

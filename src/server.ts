@@ -260,13 +260,20 @@ server.registerTool(
 
     const matches: CountyRecord[] = [];
 
-    // Parse optional state suffix: "Kane IL" or "Kane Illinois"
+    // Parse optional state suffix: "Kane IL" or "Kane Illinois". The last word is
+    // a state only when it names one, so "Kane County" and "Orleans Parish" stay whole.
     let countyPart = q;
     let statePart: string | null = null;
     const spaceIdx = q.lastIndexOf(" ");
     if (spaceIdx > 0) {
       const last = q.slice(spaceIdx + 1);
-      if (last.length === 2 || last.length > 3) {
+      const namesState = atlasIndex.states.some(
+        (s) =>
+          s.abbrev.toLowerCase() === last ||
+          s.name.toLowerCase() === last ||
+          s.slug === slugify(last)
+      );
+      if (namesState) {
         countyPart = q.slice(0, spaceIdx);
         statePart = last;
       }
@@ -303,20 +310,12 @@ server.registerTool(
     }
 
     if (matches.length === 0) {
-      // A trailing word that names no state is not a state (nor a request body's
-      // state_slug): "Kane County" splits on "county" above, so it stays whole.
-      const stateKnown =
-        statePart !== null &&
-        atlasIndex.states.some(
-          (s) =>
-            s.abbrev.toLowerCase() === statePart ||
-            s.name.toLowerCase() === statePart ||
-            s.slug === slugify(statePart)
-        );
+      // statePart is set only for a trailing word that names a state, so a junk
+      // word ("Nowhere County ZZ") is never sent as the request's state_slug.
       const ref: CountyRequestRef = isFips
         ? { state: q.slice(0, 2), fips: q }
-        : stateKnown
-          ? { state: statePart as string, county: countyPart }
+        : statePart
+          ? { state: statePart, county: countyPart }
           : { state: "", county: q };
       return {
         content: [{ type: "text" as const, text: coverageText(undefined, ref) as string }],

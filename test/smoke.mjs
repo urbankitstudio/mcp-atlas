@@ -423,6 +423,27 @@ async function run() {
   assert(tnList.includes("Davidson"), "list_counties lists a served Tennessee county (Davidson)");
   assert(!tnList.includes("Shelby"), "list_counties leaves out Shelby, recorded but not served");
 
+  // The last word of a find_county query is a state ONLY when it names one.
+  // Until 0.3.8 any final word of 2 or more than 3 letters was taken for a state,
+  // so "Kane County" and "Orleans Parish" matched nothing, and the not-in-atlas
+  // answer would have told an agent to request counties the atlas serves.
+  let findId = 30;
+  for (const [query, header] of [
+    ["Kane County", "Kane, Illinois (IL)\nFIPS: 17089\n"],
+    ["Cook County IL", "Cook, Illinois (IL)\nFIPS: 17031\n"],
+    ["Orleans Parish", "Orleans Parish, Louisiana (LA)\nFIPS: 22071\n"],
+    ["Orleans Parish LA", "Orleans Parish, Louisiana (LA)\nFIPS: 22071\n"],
+    ["St. Louis County MO", "St. Louis, Missouri (MO)\nFIPS: 29189\n"],
+    ["17031", "Cook, Illinois (IL)\nFIPS: 17031\n"],
+  ]) {
+    sendMessage(proc, findId++, "tools/call", { name: "find_county", arguments: { query } });
+    const found = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(
+      found.startsWith(header) && !found.includes("not in the UrbanKit atlas"),
+      `find_county resolves "${query}"`,
+    );
+  }
+
   // A served county still prints what it printed before 0.3.8: the record, no
   // coverage block. Kane IL, whose full text smoke step 5 and 6 also read.
   sendMessage(proc, 26, "tools/call", { name: "find_county", arguments: { query: "Kane IL" } });
