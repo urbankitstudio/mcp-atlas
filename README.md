@@ -4,11 +4,11 @@
 
 [![mcp-atlas MCP server](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas/badges/card.svg)](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas)
 
-Query the parcel ArcGIS REST endpoints of 479 counties across 51 US states (50 states plus DC), 494 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
+Query the parcel ArcGIS REST endpoints of 494 counties across 51 US states (50 states plus DC), 494 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 479 counties across 51 US states (50 states plus DC), 494 endpoints, 493 of them live (atlas 0.6.37).
+**Coverage:** 494 counties across 51 US states (50 states plus DC), 494 endpoints, 493 of them live (atlas 0.6.38). 467 of the counties have an endpoint; for the other 27 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
@@ -76,6 +76,26 @@ takes an exact pair and answers about one. If you already know the county, skip
 
 This server never executes a query and returns no parcel records. It tells you
 the URL to fetch; fetching it is yours to do.
+
+### A county we cannot serve
+
+`find_county`, `get_parcel_endpoint` and `build_owner_query` give one answer for
+a county with no endpoint to hand back, the same text the hosted UrbanKit MCP
+server, its REST API and the `uks` CLI give. It comes from
+`coverageAnswer()` in `@urbankitstudio/atlas` 0.6.38:
+
+- **The atlas has no record** (a misspelling lands here too): "This county is not
+  in the UrbanKit atlas", with a prompt to check the spelling first.
+- **The atlas records the county and it publishes nothing we can serve** (Shelby
+  TN, whose terms bar public display; Columbia PA, whose layer has parcel numbers
+  only): the reason in one sentence, the date we last checked, the date of the
+  next check when one is set, the county's own office and, where the county sells
+  the data, its own product.
+
+Both end with a free request for the county: a ready body for `request_county`
+on the hosted MCP server or `POST https://urbankitstudio.com/api/atlas/request`.
+Requesting does not promise we add the county. `list_counties` still lists only
+the counties we serve.
 
 ### `list_counties`
 

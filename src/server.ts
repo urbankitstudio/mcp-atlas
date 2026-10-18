@@ -25,7 +25,11 @@ import {
   atlasIndex,
   slugify,
   countySlugFromName,
+  countyHasEndpoint,
+  coverageAnswer,
+  coverageAnswerText,
 } from "@urbankitstudio/atlas";
+import type { CountyRecord, CountyRequestRef } from "@urbankitstudio/atlas";
 import {
   ownerSearchPolicy,
   ownerWhereClause,
@@ -49,18 +53,23 @@ const PKG_VERSION: string = JSON.parse(
   readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8"),
 ).version;
 
-// This server carries no network tool of its own, so a county it does not hold
-// is pointed at the hosted request path instead (free; UKS PR #941, 2026-10-06).
-const REQUEST_COUNTY_HINT =
-  "This county is not in the UrbanKit atlas yet. Offer to request it for the person you are helping; if they say yes, " +
-  'POST {"county_fips": "<5 digits>"} (or {"state_slug": "<state-slug>", "county_slug": "<county-slug>"}) ' +
-  "to https://urbankitstudio.com/api/atlas/request, or call the hosted MCP tool request_county at https://urbankitstudio.com/api/mcp, " +
-  'adding their email ("requester_email") if they want to be told when it ships. Requesting is free.';
-import type { CountyRecord } from "@urbankitstudio/atlas";
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// This server carries no network tool of its own, so a county it cannot serve
+// (the atlas has no record, or records it with no public endpoint) gets the
+// atlas package's coverage answer: why, when we checked, and the free request
+// path on the hosted server. The text is the one the hosted MCP, the REST API
+// and the `uks` CLI print, and it is pure, so every surface gives the same one.
+function coverageText(record: CountyRecord | undefined, ref: CountyRequestRef): string | null {
+  const block = coverageAnswer(record, ref);
+  return block ? coverageAnswerText(block) : null;
+}
+
+function recordRef(c: CountyRecord): CountyRequestRef {
+  return { state: c.state, county: c.county, fips: c.countyFips };
+}
 
 // Whether an owner query is offered, and how it is scoped, is decided ONLY in
 // ./search-policy.ts. Matching the column name is not enough, and that gap cost
@@ -89,28 +98,36 @@ function scopeLine(owner: OwnerSearchPolicy): string | null {
 }
 
 function formatCountySummary(c: CountyRecord): string {
+  if (!countyHasEndpoint(c)) {
+    return [
+      `${c.county}, ${c.stateName} (${c.state})`,
+      `FIPS: ${c.countyFips ?? "n/a"}`,
+      coverageText(c, recordRef(c)),
+      c.notes ? `Notes: ${c.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   const epSummary =
-    c.endpoints.length === 0
-      ? "no REST endpoint mapped"
-      : c.endpoints
-          .map((ep) => {
-            const owner = ownerSearchPolicy(c, ep);
-            const searchable = ep.searchFields
-              .filter((sf) => sf.searchable)
-              .map((sf) => `${sf.name} (${sf.label})`)
-              .join(", ");
-            const scope = scopeLine(owner);
-            return [
-              `  URL: ${ep.url}`,
-              `  Service: ${ep.serviceType}/layer ${ep.layerIndex}`,
-              `  Status: ${ep.status} (verified ${ep.lastVerified})`,
-              ...(scope ? [`  ${scope}`] : []),
-              `  Searchable fields: ${searchable || "none"}`,
-              `  ${ownerLine(owner)}`,
-              `  License: ${ep.license}`,
-            ].join("\n");
-          })
-          .join("\n---\n");
+    c.endpoints
+      .map((ep) => {
+        const owner = ownerSearchPolicy(c, ep);
+        const searchable = ep.searchFields
+          .filter((sf) => sf.searchable)
+          .map((sf) => `${sf.name} (${sf.label})`)
+          .join(", ");
+        const scope = scopeLine(owner);
+        return [
+          `  URL: ${ep.url}`,
+          `  Service: ${ep.serviceType}/layer ${ep.layerIndex}`,
+          `  Status: ${ep.status} (verified ${ep.lastVerified})`,
+          ...(scope ? [`  ${scope}`] : []),
+          `  Searchable fields: ${searchable || "none"}`,
+          `  ${ownerLine(owner)}`,
+          `  License: ${ep.license}`,
+        ].join("\n");
+      })
+      .join("\n---\n");
   return [
     `${c.county}, ${c.stateName} (${c.state})`,
     `FIPS: ${c.countyFips ?? "n/a"}`,
@@ -175,9 +192,7 @@ server.registerTool(
       const stateFile = atlas.byStateSlug.get(stateEntry.slug);
       if (!stateFile) continue;
 
-      const covered = stateFile.counties.filter(
-        (c) => c.endpoints.length > 0
-      );
+      const covered = stateFile.counties.filter(countyHasEndpoint);
       for (const c of covered) {
         // A caller scanning this column is deciding whether to spend a request.
         // ownerCoverageLabel documents what each label promises; "owner+APN"
@@ -245,6 +260,18 @@ server.registerTool(
 
     const matches: CountyRecord[] = [];
 
+    // Parse optional state suffix: "Kane IL" or "Kane Illinois"
+    let countyPart = q;
+    let statePart: string | null = null;
+    const spaceIdx = q.lastIndexOf(" ");
+    if (spaceIdx > 0) {
+      const last = q.slice(spaceIdx + 1);
+      if (last.length === 2 || last.length > 3) {
+        countyPart = q.slice(0, spaceIdx);
+        statePart = last;
+      }
+    }
+
     for (const stateEntry of atlasIndex.states) {
       if (!stateEntry.populated) continue;
       const stateFile = atlas.byStateSlug.get(stateEntry.slug);
@@ -254,18 +281,6 @@ server.registerTool(
         if (isFips) {
           if (county.countyFips === q) matches.push(county);
           continue;
-        }
-
-        // Parse optional state suffix: "Kane IL" or "Kane Illinois"
-        let countyPart = q;
-        let statePart: string | null = null;
-        const spaceIdx = q.lastIndexOf(" ");
-        if (spaceIdx > 0) {
-          const last = q.slice(spaceIdx + 1);
-          if (last.length === 2 || last.length > 3) {
-            countyPart = q.slice(0, spaceIdx);
-            statePart = last;
-          }
         }
 
         if (statePart) {
@@ -288,16 +303,23 @@ server.registerTool(
     }
 
     if (matches.length === 0) {
+      // A trailing word that names no state is not a state (nor a request body's
+      // state_slug): "Kane County" splits on "county" above, so it stays whole.
+      const stateKnown =
+        statePart !== null &&
+        atlasIndex.states.some(
+          (s) =>
+            s.abbrev.toLowerCase() === statePart ||
+            s.name.toLowerCase() === statePart ||
+            s.slug === slugify(statePart)
+        );
+      const ref: CountyRequestRef = isFips
+        ? { state: q.slice(0, 2), fips: q }
+        : stateKnown
+          ? { state: statePart as string, county: countyPart }
+          : { state: "", county: q };
       return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              `No county matched "${query}".\n` +
-              `Try: "Kane IL", "Cook County IL", "17031" (FIPS), or use list_counties to browse.\n` +
-              REQUEST_COUNTY_HINT,
-          },
-        ],
+        content: [{ type: "text" as const, text: coverageText(undefined, ref) as string }],
       };
     }
 
@@ -362,23 +384,15 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
-            text:
-              `County "${county}" not found in state "${state}".\n` +
-              `Use list_counties or find_county to verify the name.\n` +
-              REQUEST_COUNTY_HINT,
+            text: coverageText(undefined, { state: state.trim(), county: county.trim() }) as string,
           },
         ],
       };
     }
 
-    if (countyRecord.endpoints.length === 0) {
+    if (!countyHasEndpoint(countyRecord)) {
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: `${countyRecord.county}, ${countyRecord.stateName} is in the atlas but has no verified REST endpoint yet.`,
-          },
-        ],
+        content: [{ type: "text" as const, text: formatCountySummary(countyRecord) }],
       };
     }
 
@@ -487,11 +501,15 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
-            text:
-              `County "${county}" not found in state "${state}". Use find_county to verify.\n` +
-              REQUEST_COUNTY_HINT,
+            text: coverageText(undefined, { state: stateInput, county: county.trim() }) as string,
           },
         ],
+      };
+    }
+
+    if (!countyHasEndpoint(countyRecord)) {
+      return {
+        content: [{ type: "text" as const, text: formatCountySummary(countyRecord) }],
       };
     }
 
@@ -545,17 +563,6 @@ server.registerTool(
           `  - Add &token=<your-token> if the service requires auth (this county is public)`,
         ].join("\n")
       );
-    }
-
-    if (results.length === 0) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `${countyRecord.county}, ${countyRecord.stateName} has no REST endpoints in the atlas yet.`,
-          },
-        ],
-      };
     }
 
     return {

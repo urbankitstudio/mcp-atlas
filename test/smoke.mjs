@@ -294,26 +294,54 @@ async function run() {
     "get_parcel_endpoint says Orleans offers location queries only, not attribute search",
   );
 
-  // Step 9 (0.2.14): a county the atlas does not hold is pointed at the hosted
-  // request path. This server has no network tool, so the three not-found
-  // answers carry the URL and the hosted tool name instead of a dead end.
+  // Step 9 (0.2.14, reworked 0.3.8): a county the atlas does not hold gets the
+  // coverage answer from @urbankitstudio/atlas, the text the hosted MCP, the
+  // REST API and the `uks` CLI print. status "not-in-atlas" reads as the
+  // NOT_IN_ATLAS_WHY sentence. This server has no network tool, so the answer
+  // carries the free hosted request path instead of a dead end.
   sendMessage(proc, 14, "tools/call", {
     name: "find_county",
-    arguments: { query: "Nowhere County ZZ" },
+    arguments: { query: "Nowhere County IL" },
   });
   const missFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-  assert(missFind.includes("No county matched"), "find_county reports no match for a made-up county");
+  assert(
+    missFind.startsWith("This county is not in the UrbanKit atlas.\n") && !missFind.includes("No county matched"),
+    "find_county answers a made-up county with the not-in-atlas coverage answer",
+  );
   assert(
     missFind.includes("https://urbankitstudio.com/api/atlas/request") &&
       missFind.includes("request_county") &&
-      missFind.includes("Offer to request it for the person you are helping"),
-    "find_county's no-match answer carries the hosted request URL and tool name",
+      missFind.includes("offer to request it for the person you are helping"),
+    "find_county's not-in-atlas answer carries the hosted request URL and tool name",
   );
   // The endpoint's parser keeps only county_fips or state_slug + county_slug and
   // drops other keys, so a body built from bare "state"/"county" 400s.
   assert(
-    missFind.includes('"state_slug"') && missFind.includes('"county_slug"') && !missFind.includes('{"state":'),
-    "the request hint names the body keys the request endpoint accepts",
+    missFind.includes('{"state_slug":"illinois","county_slug":"nowhere-county"}') && !missFind.includes('{"state":'),
+    "the request body names the keys the request endpoint accepts, with the state resolved to its slug",
+  );
+
+  // A trailing word that names no state must not become the request's state.
+  sendMessage(proc, 141, "tools/call", {
+    name: "find_county",
+    arguments: { query: "Nowhere County ZZ" },
+  });
+  const zzFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    zzFind.startsWith("This county is not in the UrbanKit atlas.\n") &&
+      zzFind.includes('{"county_fips":"<5 digits>"}') &&
+      !zzFind.includes('"state_slug"'),
+    "find_county sends no state_slug for a trailing word that is not a state, and asks for a FIPS code",
+  );
+
+  sendMessage(proc, 142, "tools/call", {
+    name: "find_county",
+    arguments: { query: "99999" },
+  });
+  const fipsMiss = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    fipsMiss.startsWith("This county is not in the UrbanKit atlas.\n") && fipsMiss.includes('{"county_fips":"99999"}'),
+    "find_county names an unknown FIPS code in the request body",
   );
 
   sendMessage(proc, 15, "tools/call", {
@@ -322,8 +350,10 @@ async function run() {
   });
   const missEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(
-    missEndpoint.includes("not found in state") && missEndpoint.includes("https://urbankitstudio.com/api/atlas/request"),
-    "get_parcel_endpoint's not-found answer carries the hosted request URL",
+    missEndpoint.startsWith("This county is not in the UrbanKit atlas.\n") &&
+      missEndpoint.includes('{"state_slug":"illinois","county_slug":"nowhere-county"}') &&
+      missEndpoint.includes("https://urbankitstudio.com/api/atlas/request"),
+    "get_parcel_endpoint's not-in-atlas answer carries the coverage answer and a request body",
   );
 
   sendMessage(proc, 16, "tools/call", {
@@ -332,8 +362,85 @@ async function run() {
   });
   const missQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(
-    missQuery.includes("not found in state") && missQuery.includes("https://urbankitstudio.com/api/atlas/request"),
-    "build_owner_query's not-found answer carries the hosted request URL",
+    missQuery.startsWith("This county is not in the UrbanKit atlas.\n") &&
+      missQuery.includes('{"state_slug":"illinois","county_slug":"nowhere-county"}') &&
+      missQuery.includes("https://urbankitstudio.com/api/atlas/request"),
+    "build_owner_query's not-in-atlas answer carries the coverage answer and a request body",
+  );
+
+  // Step 11 (0.3.8): a county the atlas RECORDS but cannot serve (status
+  // "no-public-data"). Shelby TN is licence-restricted: atlas 0.6.38 carries its
+  // reason, the check date and the county office. The three county tools give
+  // one answer, and none prints an endpoint or an owner query for it.
+  const SHELBY_WHY = "ReGIS publishes Shelby County's parcels under terms that bar public display";
+  const shelbyRequestBody = '{"county_fips":"47157","county_name":"Shelby","state_abbrev":"TN"}';
+  for (const [id, name, args] of [
+    [20, "find_county", { query: "Shelby TN" }],
+    [21, "get_parcel_endpoint", { state: "TN", county: "Shelby" }],
+    [22, "build_owner_query", { state: "TN", county: "Shelby", owner_name: "SMITH" }],
+  ]) {
+    sendMessage(proc, id, "tools/call", { name, arguments: args });
+    const shelby = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(
+      shelby.startsWith("Shelby, Tennessee (TN)\nFIPS: 47157\n") && shelby.includes(SHELBY_WHY),
+      `${name} gives the licence-restricted reason for Shelby TN`,
+    );
+    assert(
+      shelby.includes("Checked: 2026-10-17") && shelby.includes("County office: Shelby County ReGIS"),
+      `${name} gives Shelby TN's check date and county office`,
+    );
+    assert(
+      shelby.includes("We recheck counties like this one.") &&
+        shelby.includes(shelbyRequestBody) &&
+        shelby.includes("https://urbankitstudio.com/api/atlas/request"),
+      `${name} gives Shelby TN's recheck line and a request body keyed by FIPS`,
+    );
+    assert(
+      !shelby.includes("not in the UrbanKit atlas") &&
+        !shelby.includes("no REST endpoint mapped") &&
+        !shelby.includes("URL:") &&
+        !shelby.includes("WHERE clause"),
+      `${name} prints no endpoint, no owner query and no not-in-atlas line for Shelby TN`,
+    );
+  }
+
+  // The coverage block's optional lines, from real 0.6.38 records: a planned
+  // recheck date (Columbia PA) and the county's own paid product (Lancaster PA).
+  sendMessage(proc, 23, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "PA", county: "Columbia" } });
+  const columbia = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(columbia.includes("Next check: 2026-10-24"), "get_parcel_endpoint prints Columbia PA's planned recheck date");
+  sendMessage(proc, 24, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "PA", county: "Lancaster" } });
+  const lancaster = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    lancaster.includes("County product: LanCo View PLUS + Data Hub Premium, https://lancastercountypa.gov/2697/LanCo-View-PLUS"),
+    "get_parcel_endpoint prints Lancaster PA's own paid product",
+  );
+
+  // list_counties keeps listing served counties only: Shelby is recorded but
+  // unserved, Davidson is served.
+  sendMessage(proc, 25, "tools/call", { name: "list_counties", arguments: { state: "TN" } });
+  const tnList = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(tnList.includes("Davidson"), "list_counties lists a served Tennessee county (Davidson)");
+  assert(!tnList.includes("Shelby"), "list_counties leaves out Shelby, recorded but not served");
+
+  // A served county still prints what it printed before 0.3.8: the record, no
+  // coverage block. Kane IL, whose full text smoke step 5 and 6 also read.
+  sendMessage(proc, 26, "tools/call", { name: "find_county", arguments: { query: "Kane IL" } });
+  const kaneFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    kaneFind.startsWith("Kane, Illinois (IL)\nFIPS: 17089\nEndpoints (") &&
+      kaneFind.includes("\n  URL: https://gistech.countyofkane.org/"),
+    "find_county prints a served county's record unchanged (Kane IL)",
+  );
+  sendMessage(proc, 27, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "IL", county: "Kane" } });
+  const kaneEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    kaneEndpoint.startsWith("Kane County, Illinois (IL)\nFIPS: 17089\n\nEndpoint 1:\n  URL:         https://gistech.countyofkane.org/"),
+    "get_parcel_endpoint prints a served county's record unchanged (Kane IL)",
+  );
+  assert(
+    !kaneFind.includes("Checked:") && !kaneEndpoint.includes("Checked:") && !kaneEndpoint.includes("request_county"),
+    "a served county carries no coverage answer",
   );
 
   // Step 10 (0.3.0): get_city_datasets. Answers from the bundled registry; the

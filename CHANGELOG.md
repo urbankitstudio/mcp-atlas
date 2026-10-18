@@ -6,6 +6,30 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.8 — 2026-10-18
+
+Atlas ^0.6.38, and the coverage answer. A county this server cannot serve now gets the
+answer the hosted MCP server, the REST API and the `uks` CLI give, from the atlas
+package's `coverageAnswer()`, instead of "No county matched" or "no REST endpoint mapped".
+
+- `find_county`, `get_parcel_endpoint` and `build_owner_query`, for a county the atlas has
+  no record of: "This county is not in the UrbanKit atlas", a prompt to check the spelling,
+  and a ready request body (by FIPS code, or by state and county slug). A trailing word in a
+  `find_county` query that names no state ("Nowhere County ZZ") is not sent as the state.
+- The same three tools, for a county the atlas records without a public endpoint (27 of
+  them, Shelby TN among them): the reason in one sentence, the date we last checked, the next
+  planned check when one is set, the county's own office and paid product where it has them,
+  and the same request body. `find_county` still prints the record's notes after it.
+- Served counties print exactly what they printed before. `list_counties` still lists served
+  counties only; "served" is now the package's `countyHasEndpoint()`, which agrees with the
+  old endpoint-count test on all 494 records.
+- `build_owner_query` for a county with no endpoint used to say "has no REST endpoints in the
+  atlas yet"; it now gives the coverage answer, and that dead branch is gone.
+- Coverage: 494 counties and 494 endpoints, 493 of them live; 467 counties have an endpoint
+  (was 479 counties, same endpoints). Fifteen counties are newly recorded with their reason.
+
+No tool name, schema or description change.
+
 ## 0.3.7 — 2026-10-17
 
 Data update: atlas ^0.6.37.
