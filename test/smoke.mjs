@@ -435,14 +435,52 @@ async function run() {
     ["Orleans Parish LA", "Orleans Parish, Louisiana (LA)\nFIPS: 22071\n"],
     ["St. Louis County MO", "St. Louis, Missouri (MO)\nFIPS: 29189\n"],
     ["17031", "Cook, Illinois (IL)\nFIPS: 17031\n"],
+    // A comma or a tab between the words is a space, not part of the county name.
+    ["Cook County, IL", "Cook, Illinois (IL)\nFIPS: 17031\n"],
+    ["Kane\tIL", "Kane, Illinois (IL)\nFIPS: 17089\n"],
+    // A two-word state name is a state suffix, tried before the last word alone.
+    ["Kings New York", "Kings, New York (NY)\nFIPS: 36047\n"],
+    ["Kanawha West Virginia", "Kanawha, West Virginia (WV)\nFIPS: 54039\n"],
   ]) {
     sendMessage(proc, findId++, "tools/call", { name: "find_county", arguments: { query } });
     const found = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
     assert(
       found.startsWith(header) && !found.includes("not in the UrbanKit atlas"),
-      `find_county resolves "${query}"`,
+      `find_county resolves "${query.replace("\t", "<tab>")}"`,
     );
   }
+
+  // The comma must not cost a recorded-but-unserved county its coverage answer.
+  sendMessage(proc, findId++, "tools/call", { name: "find_county", arguments: { query: "Shelby County, TN" } });
+  const shelbyComma = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    shelbyComma.startsWith("Shelby, Tennessee (TN)\nFIPS: 47157\n") && shelbyComma.includes(SHELBY_WHY),
+    'find_county gives "Shelby County, TN" its licence-restricted coverage answer',
+  );
+
+  // A state that names no state is never sent as the request's state_slug.
+  for (const [tool, args] of [
+    ["get_parcel_endpoint", { state: "ZZ", county: "Nowhere" }],
+    ["build_owner_query", { state: "Ill.", county: "Nowhere", owner_name: "SMITH" }],
+  ]) {
+    sendMessage(proc, findId++, "tools/call", { name: tool, arguments: args });
+    const badState = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(
+      badState.startsWith("This county is not in the UrbanKit atlas.\n") &&
+        badState.includes('{"county_fips":"<5 digits>"}') &&
+        !badState.includes('"state_slug"'),
+      `${tool} sends no state_slug for the state "${args.state}" and asks for a FIPS code`,
+    );
+  }
+
+  // A blank query is a short error, not a dump of every record.
+  sendMessage(proc, findId++, "tools/call", { name: "find_county", arguments: { query: "  " } });
+  const blank = (await readResponse(proc)).result;
+  const blankText = blank?.content?.[0]?.text ?? "";
+  assert(
+    blank?.isError === true && blankText.startsWith("Give a county name") && blankText.length < 200,
+    "find_county answers a whitespace-only query with a short error",
+  );
 
   // A served county still prints what it printed before 0.3.8: the record, no
   // coverage block. Kane IL, whose full text smoke step 5 and 6 also read.

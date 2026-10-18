@@ -14,18 +14,21 @@ package's `coverageAnswer()`, instead of "No county matched" or "no REST endpoin
 
 - `find_county`, `get_parcel_endpoint` and `build_owner_query`, for a county the atlas has
   no record of: "This county is not in the UrbanKit atlas", a prompt to check the spelling,
-  and a ready request body (by FIPS code, or by state and county slug). A trailing word in a
-  `find_county` query that names no state ("Nowhere County ZZ") is not sent as the state.
+  and a request. The request is a ready body (by FIPS code, or by state and county slug) when
+  the state is known; free text or a state that names no state ("Nowhere County ZZ", "Ill.")
+  gets the FIPS-code template instead, and is never sent as the request's `state_slug`.
 - The same three tools, for a county the atlas records without a public endpoint (27 of
   them, Shelby TN among them): the reason in one sentence, the date we last checked, the next
   planned check when one is set, the county's own office and paid product where it has them,
   and the same request body. `find_county` still prints the record's notes after it.
-- Fix: `find_county` takes the last word of a query for a state only when it names one (an
-  abbreviation, a name or a slug). Before, any last word of two or more than three letters
-  counted, so "Kane County", "Orleans Parish" and "Los Angeles" matched nothing, and the
-  not-in-atlas answer would have told an agent to request counties the atlas serves. They
-  resolve now, as do "Cook County IL" and "St. Louis County MO". A state name of two words
-  still does not parse as a suffix ("Kings New York" matches nothing; "Kings NY" works).
+- Fix: `find_county` reads the state suffix of a query properly. The last two words count as
+  the state when they name one ("Kings New York", "Kanawha West Virginia"), else the last word
+  does, and only when it names a state (an abbreviation, a name or a slug). Before, any last
+  word of two or more than three letters counted, so "Kane County", "Orleans Parish" and
+  "Los Angeles" matched nothing, "Kanawha West Virginia" read as the state Virginia, and the
+  not-in-atlas answer would have told an agent to request counties the atlas serves. A comma
+  or a tab between words is a space ("Cook County, IL", "Kane<tab>IL"). A query shorter than
+  two characters once trimmed gets a one-line error instead of every record.
 - Served counties print exactly what they printed before. `list_counties` still lists served
   counties only; "served" is now the package's `countyHasEndpoint()`, which agrees with the
   old endpoint-count test on all 494 records.

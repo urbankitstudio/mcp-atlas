@@ -71,6 +71,24 @@ function recordRef(c: CountyRecord): CountyRequestRef {
   return { state: c.state, county: c.county, fips: c.countyFips };
 }
 
+/** True when the text is a state abbreviation, name or slug ("il", "new york", "new-york"), in any case. */
+function namesState(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return atlasIndex.states.some(
+    (s) => s.abbrev.toLowerCase() === t || s.name.toLowerCase() === t || s.slug === slugify(t)
+  );
+}
+
+/**
+ * The state a request ref may carry: the caller's text when it names a state,
+ * else "" so the answer asks for a FIPS code instead of sending a made-up
+ * state_slug ("zz", "ill"). The hosted get_county_endpoint does the same.
+ */
+function refState(text: string): string {
+  const t = text.trim();
+  return namesState(t) ? t : "";
+}
+
 // Whether an owner query is offered, and how it is scoped, is decided ONLY in
 // ./search-policy.ts. Matching the column name is not enough, and that gap cost
 // a real trial user: they paid for owner data, ran Los Angeles County, got
@@ -253,30 +271,35 @@ server.registerTool(
     },
   },
   ({ query }) => {
-    const q = query.trim().toLowerCase();
+    // Commas and any run of whitespace (a tab too) are one space: "Cook County, IL".
+    const q = query.toLowerCase().replace(/[\s,]+/g, " ").trim();
+    if (q.length < 2) {
+      return {
+        content: [
+          { type: "text" as const, text: "Give a county name, 'Name ST', or a 5-digit FIPS code." },
+        ],
+        isError: true,
+      };
+    }
 
     // FIPS lookup
     const isFips = /^\d{5}$/.test(q);
 
     const matches: CountyRecord[] = [];
 
-    // Parse optional state suffix: "Kane IL" or "Kane Illinois". The last word is
-    // a state only when it names one, so "Kane County" and "Orleans Parish" stay whole.
+    // Parse optional state suffix: "Kane IL", "Kane Illinois", "Kings New York". The
+    // last two words are tried as a state first, then the last one; a tail that names
+    // no state stays part of the county name, so "Kane County" and "Orleans Parish"
+    // stay whole.
     let countyPart = q;
     let statePart: string | null = null;
-    const spaceIdx = q.lastIndexOf(" ");
-    if (spaceIdx > 0) {
-      const last = q.slice(spaceIdx + 1);
-      const namesState = atlasIndex.states.some(
-        (s) =>
-          s.abbrev.toLowerCase() === last ||
-          s.name.toLowerCase() === last ||
-          s.slug === slugify(last)
-      );
-      if (namesState) {
-        countyPart = q.slice(0, spaceIdx);
-        statePart = last;
-      }
+    const words = q.split(" ");
+    if (words.length > 2 && namesState(words.slice(-2).join(" "))) {
+      countyPart = words.slice(0, -2).join(" ");
+      statePart = words.slice(-2).join(" ");
+    } else if (words.length > 1 && namesState(words[words.length - 1])) {
+      countyPart = words.slice(0, -1).join(" ");
+      statePart = words[words.length - 1];
     }
 
     for (const stateEntry of atlasIndex.states) {
@@ -383,7 +406,7 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
-            text: coverageText(undefined, { state: state.trim(), county: county.trim() }) as string,
+            text: coverageText(undefined, { state: refState(state), county: county.trim() }) as string,
           },
         ],
       };
@@ -500,7 +523,7 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
-            text: coverageText(undefined, { state: stateInput, county: county.trim() }) as string,
+            text: coverageText(undefined, { state: refState(stateInput), county: county.trim() }) as string,
           },
         ],
       };
