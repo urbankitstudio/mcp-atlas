@@ -6,6 +6,19 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.9 — 2026-10-18
+
+Atlas ^0.6.39, and a fix this server found: "Prince George's" (MD) was answered not-in-atlas.
+
+- Fix: atlas 0.6.39's `countySlugFromName` drops apostrophes, so "Prince George's" resolves to
+  `prince-georges-county`. Before, `get_parcel_endpoint` and `build_owner_query` with county
+  "Prince George's" missed and returned the not-in-atlas answer for a county the atlas serves.
+  `find_county` reads both the straight and the curly apostrophe. The smoke test covers all three
+  tools and both forms.
+- No pause handling. 0.6.39 exports the paused-county shapes (`ACCESS_FLAGS`, `pausedAnswer` and the
+  rest), but which counties are paused is live data on the hosted API, and `free_discovery` governs
+  hosted answers only. This server is offline, so it serves the bundled record as before.
+
 ## 0.3.8 — 2026-10-18
 
 Atlas ^0.6.38, and the coverage answer. A county this server cannot serve now gets the

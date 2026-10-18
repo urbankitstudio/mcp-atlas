@@ -555,6 +555,42 @@ async function run() {
     "get_city_datasets with no city lists the covered cities",
   );
 
+  // Step 12 (0.3.9): "Prince George's" (MD). Before atlas 0.6.39 the apostrophe
+  // stayed in the county slug, so every tool answered not-in-atlas for a served
+  // county. All three tools and both apostrophe forms must reach the record.
+  sendMessage(proc, 20, "tools/call", {
+    name: "get_parcel_endpoint",
+    arguments: { state: "MD", county: "Prince George's" },
+  });
+  const pgEndpoint = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    pgEndpoint.includes("Prince George's County, Maryland") && pgEndpoint.includes("FIPS: 24033"),
+    "get_parcel_endpoint resolves Prince George's MD to its record",
+  );
+  assert(!pgEndpoint.includes("not in the UrbanKit atlas"), "get_parcel_endpoint does not call Prince George's not-in-atlas");
+
+  sendMessage(proc, 21, "tools/call", {
+    name: "build_owner_query",
+    arguments: { state: "MD", county: "Prince George's", owner_name: "SMITH" },
+  });
+  const pgQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(pgQuery.includes("UPPER(OWNER_NAME)"), "build_owner_query builds Prince George's owner WHERE clause");
+  assert(!pgQuery.includes("not in the UrbanKit atlas"), "build_owner_query does not call Prince George's not-in-atlas");
+
+  sendMessage(proc, 22, "tools/call", { name: "find_county", arguments: { query: "Prince George's County MD" } });
+  const pgFind = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    pgFind.includes("FIPS: 24033") && !pgFind.includes("not in the UrbanKit atlas"),
+    "find_county \"Prince George's County MD\" returns the record",
+  );
+
+  sendMessage(proc, 23, "tools/call", { name: "find_county", arguments: { query: "Prince George’s" } });
+  const pgCurly = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(
+    pgCurly.includes("FIPS: 24033") && !pgCurly.includes("not in the UrbanKit atlas"),
+    "find_county with a curly apostrophe (Prince George’s) returns the record",
+  );
+
   // Cleanup
   proc.stdin.end();
   proc.kill();
