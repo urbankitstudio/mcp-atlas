@@ -6,6 +6,21 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.10 — 2026-10-18
+
+Atlas ^0.6.40, a dependency bump only. The server code is unchanged.
+
+- Five counties join the atlas: Rock Island IL, Hoke NC, Swain NC, Licking OH and Madison OH.
+  `find_county`, `get_parcel_endpoint` and `build_owner_query` serve them with no change here.
+- Fulton GA repoints.
+- Greenville SC (owner data sold) and Montgomery KY (login required) retire with their reasons.
+  The three tools answer them through the 0.3.8 coverage answer, which now carries those reasons.
+- Totals: 499 counties, 497 endpoints (all live), 470 counties with an endpoint and 29 without.
+- 0.6.40 also puts `countyDownMessage()` and `coverageOverridesPause()` in the atlas core. They are
+  not wired in: this server has no county-unavailable or paused-county surface to attach them to.
+  Which counties are paused is live data on the hosted API, and this server is offline and answers
+  from the bundled record (see 0.3.9). Wiring them would add a new answer path, not fix an existing one.
+
 ## 0.3.9 — 2026-10-18
 
 Atlas ^0.6.39, and a fix this server found: "Prince George's" (MD) was answered not-in-atlas.
