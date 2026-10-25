@@ -6,6 +6,42 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.11 — 2026-10-25
+
+Atlas ^0.6.43, the confidential-owner exclusion, the publisher's data credit, and a publish step
+that tells an unreachable MCP Registry from an unlisted version.
+
+- **Confidential owners are excluded from every owner query.** Atlas 0.6.43's `confidentialFlag`
+  names the column where a county flags an owner whose record must not be shown (Texas Tax Code
+  §25.025): Harris (`confidential_flag`, `Y`) and Collin (`GIS_DBO_AD_Entity_confidential_`, `T`),
+  plus Ector (`conf_flg`, `1`, a forward guess). `build_owner_query` and `get_parcel_endpoint`'s
+  sample owner query AND the exclusion in after the owner match and request the flag column. A
+  one-character value is a contains test (Harris packs one flag per ownership slot, `YNNNNNNNNN`),
+  a longer one an equality test. A NULL cell counts as flagged and drops out: measured live, 5,235
+  Harris rows and 15,003 Collin rows. The cell is cast to text first,
+  `CAST(field AS VARCHAR(255)) NOT LIKE '%V%'`, because Ector's flag is an integer column and its
+  server rejects the bare `NOT LIKE` with HTTP 400. The cast form gives the same counts as the bare
+  form on Harris and Collin. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
+  README rule for a one-character value is the contains test, which this follows; both select the
+  same 435,783 rows live. `find_county` and `get_parcel_endpoint` print a `Confidential owners:`
+  line, as they do the Scope line. `get_parcel_endpoint` leaves out the atlas's `sampleQuery` on a
+  flagged layer, since it predates the flag. Every other county's output is byte-identical to
+  0.3.10's.
+- **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
+  county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
+  layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
+- **Atlas ^0.6.43.** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
+  from posting ownership online). Laurel KY is recorded with no public service. Thurston WA and
+  Charleston SC lose their endpoint (licence-restricted), so they get the coverage answer. Totals:
+  501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without.
+- **publish.yml: Confirm on the MCP Registry (#87).** Run 39183889390 failed this step on eight 20 s
+  timeouts with 0 bytes received while 0.3.10 had landed. The step (now
+  `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
+  when the registry answers and no page lists it, and ends as a warning, after a 30..120 s backoff,
+  when the registry cannot be reached. Its tests run in `test:policy`. The job timeout goes from 27
+  to 36 minutes.
+- UrbanKit Studio LLC is named as the license holder and package author.
+
 ## 0.3.10 — 2026-10-18
 
 Atlas ^0.6.40, a dependency bump only. The server code is unchanged.

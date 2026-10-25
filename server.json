@@ -6,12 +6,12 @@
     "url": "https://github.com/urbankitstudio/mcp-atlas",
     "source": "github"
   },
-  "version": "0.3.10",
+  "version": "0.3.11",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@urbankitstudio/mcp-atlas",
-      "version": "0.3.10",
+      "version": "0.3.11",
       "transport": {
         "type": "stdio"
       }
