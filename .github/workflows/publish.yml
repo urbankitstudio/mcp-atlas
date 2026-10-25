@@ -65,14 +65,16 @@ jobs:
     runs-on: ubuntu-latest
     # A hung job holds a MINTABLE npm publish identity for GitHub's default six
     # hours. The monorepo workflow this was ported from carries a timeout twice;
-    # dropping it here was a regression, not a simplification. 25 rather than
+    # dropping it here was a regression, not a simplification. Longer than
     # 15 since 0.2.21: after npm ships, the MCP Registry steps can spend up to
     # ~17 minutes in bounded retries (npm visibility wait: 10 x 15 s view + 300 s
     # of backoff = 7.5 min; then 3 x (60 s login + 120 s publish) + 2 x 10 s
-    # waits = 9.3 min) plus ~4.5 minutes of read-back (8 x 20 s curl + 7 x 15 s).
-    # With ~5 minutes of install and gates the worst case is ~26.3 minutes, so 27.
-    # Only the post-npm-publish wait grew; the npm identity is spent by then.
-    timeout-minutes: 27
+    # waits = 9.3 min) plus up to 14 minutes of read-back (the deadline in
+    # scripts/confirm-registry.mjs; an unreachable registry backs off 30..120 s
+    # between 8 attempts since 0.3.11, #87). With ~5 minutes of install and
+    # gates the worst case is ~35.8 minutes, so 36. Only the post-npm-publish
+    # wait grew; the npm identity is spent by then.
+    timeout-minutes: 36
     # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
     # environment `npm-publish`, so npm checks the OIDC token for an
     # `environment` claim carrying that exact name. GitHub only puts that claim
@@ -462,31 +464,22 @@ jobs:
           exit 1
 
       # A zero exit from the publisher is not proof. Read the entry back.
+      #
+      # Three outcomes since 0.3.11 (#87): listed passes; a registry that
+      # answers without listing the version FAILS; a registry that cannot be
+      # reached (timeout, refused, 0 bytes) ends as a WARNING after a longer
+      # backoff, because "could not ask" is not "not listed". Run 39183889390
+      # failed here on eight 20 s timeouts with 0 bytes received while 0.3.10
+      # had in fact landed. Every page of the listing is read. The logic and
+      # its tests are scripts/confirm-registry.mjs and
+      # test/confirm-registry.test.mjs.
       - name: Confirm on the MCP Registry
         if: ${{ steps.mcpreg.outputs.published == 'true' }}
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           NAME=$(node -p "require('./server.json').name")
-          # Retried for ~2 minutes: a listing can trail a successful publish.
-          # Exact name AND version must match, so this cannot pass on a
-          # neighbour's entry or an older version.
-          for attempt in 1 2 3 4 5 6 7 8; do
-            if curl -fsSL --max-time 20 -G "https://registry.modelcontextprotocol.io/v0/servers" \
-                 --data-urlencode "search=$NAME" --data-urlencode "limit=100" -o /tmp/reg.json \
-               && node -e '
-                 const [name, version] = process.argv.slice(1);
-                 const d = JSON.parse(require("fs").readFileSync("/tmp/reg.json", "utf8"));
-                 const hit = (d.servers || []).find(s => s.server && s.server.name === name && s.server.version === version);
-                 process.exit(hit ? 0 : 1);
-               ' "$NAME" "$VERSION"; then
-              echo "registry lists $NAME@$VERSION"
-              exit 0
-            fi
-            [ "$attempt" -lt 8 ] && sleep 15
-          done
-          echo "::error::$NAME@$VERSION is not listed on the MCP Registry after ~2 minutes."
-          exit 1
+          node scripts/confirm-registry.mjs "$NAME" "$VERSION"
 
       # Values reach this step through `env:`, never through `${{ }}` inside
       # `run:`. An expression interpolated into a shell IS shell, and this step
