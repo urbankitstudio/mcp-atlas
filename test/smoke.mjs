@@ -637,7 +637,8 @@ async function run() {
     ["Harris", "texas", "CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'", "confidential_flag"],
     ["Collin", "texas", "CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%T%'", "GIS_DBO_AD_Entity_confidential_"],
     // Ector is where the CAST matters: conf_flg is a small integer, and its
-    // server answers the uncast `conf_flg NOT LIKE '%1%'` with HTTP 400.
+    // server answers the uncast `conf_flg NOT LIKE '%1%'` with an ArcGIS error
+    // (code 400, inside an HTTP 200 response).
     ["Ector", "texas", "CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'", "conf_flg"],
   ];
   let confId = 200;

@@ -87,12 +87,14 @@ export interface ConfidentialExclusion {
  * which an equality test would keep); a longer value is `<> 'V'`.
  *
  * The cell is CAST to text first. Ector's conf_flg is a small integer, and its
- * server answers `conf_flg NOT LIKE '%1%'` (and `<> '1'`) with HTTP 400, which
- * would break every Ector owner query; the cast form answers on all three
+ * server answers `conf_flg NOT LIKE '%1%'` (and `<> '1'`) with an ArcGIS error
+ * (code 400, inside an HTTP 200 response), which would break every Ector owner
+ * query; the cast form answers on all three
  * layers with the same counts as the bare form (measured 2026-10-25). The atlas
  * already reads the cell as text.
  *
- * The cell is NOT trimmed: TRIM(...) answers HTTP 400 on all three layers. So a
+ * The cell is NOT trimmed: TRIM(...) gets the same ArcGIS error on all three
+ * layers. So a
  * longer value's `<>` compares the cell untrimmed, where the atlas trims first.
  * No current flag has a value longer than one character, so no verdict changes
  * today; a contains test needs no trim.

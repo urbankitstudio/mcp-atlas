@@ -20,11 +20,12 @@ that tells an unreachable MCP Registry from an unlisted version.
   a longer one an equality test. A NULL cell counts as flagged and drops out: measured live, 5,235
   Harris rows and 15,003 Collin rows. The cell is cast to text first,
   `CAST(field AS VARCHAR(255)) NOT LIKE '%V%'`, because Ector's flag is an integer column and its
-  server rejects the bare `NOT LIKE` with HTTP 400. The cast form gives the same counts as the bare
+  server rejects the bare `NOT LIKE` with an ArcGIS error (code 400, inside an HTTP 200
+  response). The cast form gives the same counts as the bare
   form on Harris and Collin. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
   README rule for a one-character value is the contains test, which this follows; both select the
-  same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` answers HTTP 400 on all
-  three layers. So a value longer than one character would compare untrimmed under `<>`. No
+  same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` gets the same ArcGIS error
+  on all three layers. So a value longer than one character would compare untrimmed under `<>`. No
   current flag has one, so no verdict changes today. `find_county` and `get_parcel_endpoint`
   print a `Confidential flag:` line, as they do the Scope line. `get_parcel_endpoint` leaves out the
   atlas's `sampleQuery` on a flagged layer, which predates the flag, and prints the sample owner
