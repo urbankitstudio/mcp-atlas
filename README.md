@@ -311,4 +311,4 @@ over stdio, nothing more. It still never executes a query or returns a parcel re
 
 ## License
 
-MIT — © 2026 UrbanKit Studio
+MIT — © 2026 UrbanKit Studio LLC
