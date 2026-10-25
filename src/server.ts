@@ -631,7 +631,14 @@ server.registerTool(
         .max(CITY_STATE_MAX_LEN)
         .optional()
         .describe("Optional 2-letter code or state name, for a name used in two states."),
-      kind: z.enum(["violations", "permits", "zoning"]).optional(),
+      // zod's own enum error quotes the value it received, and the SDK prints
+      // that error in the answer, so a kind carrying a line break would land
+      // there raw. This message names the choices and never the input.
+      kind: z
+        .enum(["violations", "permits", "zoning"], {
+          errorMap: () => ({ message: "kind must be violations, permits or zoning" }),
+        })
+        .optional(),
       street: freeText()
         .max(CITY_STREET_MAX_LEN)
         .optional()

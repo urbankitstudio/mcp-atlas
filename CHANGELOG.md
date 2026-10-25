@@ -45,11 +45,14 @@ that tells an unreachable MCP Registry from an unlisted version.
   new Data credit line.
 - **Free-text arguments refuse control characters.** Every free-text argument of every tool
   (`owner_name`, `state`, `county`, `query`, `city`, `street`) now refuses the ASCII control
-  characters U+0000 to U+001F and U+007F, which take in CR, LF and TAB, and the line and paragraph
-  separators U+2028 and U+2029, with a clear error. An argument is echoed into the answer, and a
-  line break in `owner_name` could print a fake `Query URL:` line carrying an unfiltered URL there.
-  This predates 0.3.11. `find_county` accepted a tab between words since 0.3.8 and now refuses it;
-  a space or a comma still works.
+  characters U+0000 to U+001F and U+007F, which take in CR, LF and TAB, the C1 controls U+0080 to
+  U+009F (NEL and CSI among them), the line and paragraph separators U+2028 and U+2029, and the
+  bidi controls U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069, with a clear error. An
+  argument is echoed into the answer, and a line break in `owner_name` could print a fake
+  `Query URL:` line carrying an unfiltered URL there. This predates 0.3.11. `find_county` accepted
+  a tab between words since 0.3.8 and now refuses it; a space or a comma still works. A bad
+  `get_city_datasets` `kind` now gets "kind must be violations, permits or zoning" instead of
+  zod's error, which quoted the value it refused.
 - **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
   county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
   layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.

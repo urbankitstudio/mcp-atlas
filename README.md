@@ -208,9 +208,11 @@ layer's `Confidential flag:` line: the exclusion to AND in, or, for an
 incomplete flag, a warning not to read owner fields there.
 
 Every free-text argument of every tool refuses control characters (CR, LF,
-TAB, NUL and the rest of U+0000 to U+001F, and U+007F) and the line and
-paragraph separators U+2028 and U+2029, so an argument echoed into an answer
-cannot start a line of its own there.
+TAB, NUL and the rest of U+0000 to U+001F, U+007F, and the C1 controls U+0080
+to U+009F), the line and paragraph separators U+2028 and U+2029, and the bidi
+controls U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069, so an argument
+echoed into an answer cannot start a line of its own there or read differently
+from what was sent. A validation error never repeats the value it refused.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
