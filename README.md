@@ -201,6 +201,11 @@ nothing, hangs, or serves confidential owners:
   (no column, no values, or a value that is not a non-empty string), so no
   exclusion can be built.
 
+Every free-text argument of every tool refuses control characters (CR, LF,
+TAB, NUL and the rest of U+0000 to U+001F, and U+007F) and the line and
+paragraph separators U+2028 and U+2029, so an argument echoed into an answer
+cannot start a line of its own there.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `state` | string | Yes | Two-letter abbreviation or full name |

@@ -41,6 +41,7 @@ import {
   parcelEndpointSamples,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
+import { freeText } from "./tool-input.js";
 import {
   getCityDatasets,
   CITY_REF_MAX_LEN,
@@ -203,8 +204,7 @@ server.registerTool(
     description:
       `Browse what the atlas covers. Answers "is this county covered?" and "what can I search there?" with one line per county: state, name, slug, and whether owner-name search is available or the county publishes parcel numbers only. Deliberately returns NO endpoint URLs or field names; call get_parcel_endpoint for one county's technical record. Filter with a state abbreviation ('IL') or name ('Illinois'), or omit state for all ~${atlas.totals.counties} counties.`,
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .optional()
         .describe(
           "Optional: two-letter state abbreviation (e.g. 'IL') or full state name (e.g. 'Illinois')"
@@ -282,8 +282,7 @@ server.registerTool(
     description:
       "Use when you do NOT already know the exact state and county. Fuzzy-matches one free-text reference ('Kane', 'Cook County IL', a misspelling, or a 5-digit FIPS code) against every covered county and names each county it matched, so an ambiguous reference comes back as a list to choose from rather than a silent guess. Each match carries that county's technical record, the same record get_parcel_endpoint returns for one county. Call get_parcel_endpoint directly whenever you already hold an exact state and county; come here only to turn a vague, misspelled or coded reference into definite ones.",
     inputSchema: {
-      query: z
-        .string()
+      query: freeText()
         .min(2)
         .describe(
           "County name, 'County Name State' (e.g. 'Kane IL'), or 5-digit FIPS code"
@@ -291,7 +290,8 @@ server.registerTool(
     },
   },
   ({ query }) => {
-    // Commas and any run of whitespace (a tab too) are one space: "Cook County, IL".
+    // Commas and any run of spaces are one space: "Cook County, IL". A tab or a
+    // line break never gets here: the schema refuses it (./tool-input.ts).
     const q = query.toLowerCase().replace(/[\s,]+/g, " ").trim();
     if (q.length < 2) {
       return {
@@ -389,11 +389,9 @@ server.registerTool(
     description:
       "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), the exclusion for owners the county flags confidential when the layer carries such a flag (AND it in too), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .describe("Two-letter state abbreviation (e.g. 'IL') or full state name"),
-      county: z
-        .string()
+      county: freeText()
         .describe("County name (e.g. 'Kane' or 'Kane County')"),
     },
   },
@@ -506,14 +504,11 @@ server.registerTool(
     description:
       "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. Where the layer carries the county's own confidential-owner flag (Texas Tax Code §25.025), flagged rows are excluded in the query, a row with no flag recorded counts as flagged, and the flag column is returned with each row. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), when its owner column is not searchable by name (use a parcel-id or location query instead), or when the layer's confidential-owner flag is present but incomplete, so no exclusion can be built.",
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .describe("Two-letter state abbreviation (e.g. 'IL') or full state name"),
-      county: z
-        .string()
+      county: freeText()
         .describe("County name (e.g. 'Kane' or 'Kane County')"),
-      owner_name: z
-        .string()
+      owner_name: freeText()
         .min(2)
         .describe("Owner/taxpayer name to search for (partial match, case-insensitive)"),
     },
@@ -645,19 +640,16 @@ server.registerTool(
     description:
       "Find the public code-violation, building-permit and zoning-case datasets UrbanKit has verified for a U.S. city, and how to query them by street. Give a city slug or name (state optional), optionally a kind ('violations', 'permits' or 'zoning') and a street; omit city to list every covered city. Returns each dataset's endpoint (Socrata, ArcGIS, CKAN or CARTO), the address column it searches, its date field and filter, coverage notes, and a ready query URL you run yourself against the city's server. This server does not execute the query and returns no city records: fetch the returned URL yourself. Returns no owner data: for a parcel's owner use get_parcel_endpoint or build_owner_query.",
     inputSchema: {
-      city: z
-        .string()
+      city: freeText()
         .max(CITY_REF_MAX_LEN)
         .optional()
         .describe("City slug ('fort-worth') or name ('Fort Worth', 'Fort Worth, TX'). Omit to list covered cities."),
-      state: z
-        .string()
+      state: freeText()
         .max(CITY_STATE_MAX_LEN)
         .optional()
         .describe("Optional 2-letter code or state name, for a name used in two states."),
       kind: z.enum(["violations", "permits", "zoning"]).optional(),
-      street: z
-        .string()
+      street: freeText()
         .max(CITY_STREET_MAX_LEN)
         .optional()
         .describe("Optional street line only, e.g. 'Commerce' or '600 Commerce St'. A street name alone returns the most."),

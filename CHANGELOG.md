@@ -39,6 +39,13 @@ that tells an unreachable MCP Registry from an unlisted version.
   flag, and prints the sample owner query built with the exclusion instead. Counties without a
   confidential flag get the same owner queries as in 0.3.10, and credited counties also print the
   new Data credit line.
+- **Free-text arguments refuse control characters.** Every free-text argument of every tool
+  (`owner_name`, `state`, `county`, `query`, `city`, `street`) now refuses the ASCII control
+  characters U+0000 to U+001F and U+007F, which take in CR, LF and TAB, and the line and paragraph
+  separators U+2028 and U+2029, with a clear error. An argument is echoed into the answer, and a
+  line break in `owner_name` could print a fake `Query URL:` line carrying an unfiltered URL there.
+  This predates 0.3.11. `find_county` accepted a tab between words since 0.3.8 and now refuses it;
+  a space or a comma still works.
 - **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
   county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
   layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
