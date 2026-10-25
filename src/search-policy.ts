@@ -101,10 +101,7 @@ export interface ConfidentialExclusion {
  * lacks the column: a NULL cell makes either comparison UNKNOWN, so the row
  * drops out. Harris has 5,235 NULL cells and Collin 15,003, and both fall
  * outside the clause live. Never COALESCE the cell to '' here: that would serve
- * them. The hosted UKS API differs on exactly these rows: it filters in code
- * and SHOWS a NULL-flag row (src/lib/withhold-core.ts:165-169, where
- * cellIsFlagged returns false on NULL). That difference is the UKS side's to
- * settle; this server stays fail-closed.
+ * them. This server stays fail-closed on a NULL cell.
  */
 export function confidentialExclusion(flag: ConfidentialFlag | undefined): ConfidentialExclusion | null {
   if (!flag || flag.values.length === 0) return null;
