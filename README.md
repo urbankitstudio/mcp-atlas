@@ -126,6 +126,7 @@ What each Coverage label promises:
 | `APN only (county publishes no owner name)` | A reviewed record says the county serves no usable owner name |
 | `location queries only` | No endpoint answers attribute searches; parcels are reached by geometry, which also returns owner fields |
 | `APN only (owner column not searchable)` | An owner column exists but the county marks it unsearchable by name; a parcel-id or location query returns it |
+| `APN only (confidential flag incomplete)` | An owner column exists, but the layer's confidential-owner flag is malformed, so no owner query is offered |
 | `APN only` | No endpoint documents an owner column |
 
 ---
@@ -182,18 +183,23 @@ column beside the owner: Texas Tax Code §25.025 lets peace officers, judges,
 family-violence victims and others keep their home address confidential, and
 Harris and Collin mark those accounts (Ector carries a forward guess). On such
 a layer the query excludes flagged rows, as
-`(…) AND CAST(flag AS VARCHAR(255)) NOT LIKE '%Y%'` for a one-character value
-(Harris packs one flag per ownership slot, `YNNNNNNNNN`), or `<> 'VALUE'` for
-a longer one. The cast lets one form serve a text or an integer column. A row with no flag recorded (NULL) counts as flagged and drops
+`(…) AND UPPER(CAST(flag AS VARCHAR(255))) NOT LIKE '%Y%'` for a one-character value
+(Harris packs one flag per ownership slot, `YNNNNNNNNN`), or
+`UPPER(CAST(flag AS VARCHAR(255))) <> 'VALUE'` for a longer one. The cast lets
+one form serve a text or an integer column, and UPPER on both sides compares
+the flag without regard to case. A row with no flag recorded (NULL) counts as flagged and drops
 out. The flag column comes back with each row; never show or pass on a row
 whose flag is set.
 
 An endpoint is refused, with the reason, rather than handed a query that finds
-nothing or hangs:
+nothing, hangs, or serves confidential owners:
 
 - a reviewed record says the county publishes no usable owner name;
 - the layer serves no attribute search at all (query it by location instead);
-- the owner column is not searchable by name (use a parcel-id or location query).
+- the owner column is not searchable by name (use a parcel-id or location query);
+- the layer carries a confidential-owner flag that is present but incomplete
+  (no column, no values, or a value that is not a non-empty string), so no
+  exclusion can be built.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

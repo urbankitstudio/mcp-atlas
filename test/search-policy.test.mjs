@@ -12,13 +12,16 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findState, reviewedCapability } from "@urbankitstudio/atlas";
+import { atlas, findState, reviewedCapability } from "@urbankitstudio/atlas";
 import {
   ownerSearchPolicy,
   ownerWhereClause,
   ownerCoverageLabel,
   buildArcgisOwnerQuery,
   ownerQueryRowsNote,
+  confidentialExclusion,
+  confidentialLine,
+  parcelEndpointSamples,
   ATTRIBUTE_SEARCH_UNSUPPORTED_REASON,
   OWNER_UNSEARCHABLE_REASON,
 } from "../dist/search-policy.js";
@@ -197,17 +200,18 @@ test("Harris TX: the owner query excludes a flag cell that CONTAINS Y, and reque
   const p = ownerSearchPolicy(harris, ep);
   assert.equal(p.kind, "offered");
   assert.deepEqual(p.confidential, {
+    kind: "exclude",
     field: "confidential_flag",
-    where: "CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'",
+    where: "UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
   });
   assert.equal(
     ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
-    "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'",
+    "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
   );
   const url = new URL(buildArcgisOwnerQuery(ep, p, "SMITH"));
   assert.equal(
     url.searchParams.get("where"),
-    "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'",
+    "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
   );
   assert.ok(url.searchParams.get("outFields").split(",").includes("confidential_flag"), "the flag column is requested");
 });
@@ -217,7 +221,7 @@ test("Collin TX: a one-character 'T' is a contains test too", () => {
   const p = ownerSearchPolicy(collin, collin.endpoints[0]);
   assert.equal(
     ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
-    "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%T%'",
+    "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%'",
   );
   const url = new URL(buildArcgisOwnerQuery(collin.endpoints[0], p, "SMITH"));
   assert.ok(url.searchParams.get("outFields").split(",").includes("GIS_DBO_AD_Entity_confidential_"));
@@ -227,10 +231,10 @@ test("Ector TX: the small-integer conf_flg is cast to text, which its server acc
   const ector = county("texas", "tx-ector");
   assert.deepEqual(ector.endpoints[0].confidentialFlag, { field: "conf_flg", values: ["1"] }, "fixture: the installed atlas's marker");
   const p = ownerSearchPolicy(ector, ector.endpoints[0]);
-  assert.equal(p.confidential.where, "CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'");
+  assert.equal(p.confidential.where, "UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%'");
   assert.equal(
     ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
-    "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'",
+    "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%'",
   );
 });
 
@@ -239,15 +243,15 @@ test("Ector TX: the small-integer conf_flg is cast to text, which its server acc
 test("the three flagged owner query URLs carry these exact encoded where clauses and flag columns", () => {
   const expected = {
     "tx-harris": [
-      "(UPPER(owner_name_1)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(confidential_flag%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%25Y%25'",
+      "(UPPER(owner_name_1)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20UPPER(CAST(confidential_flag%20AS%20VARCHAR(255)))%20NOT%20LIKE%20'%25Y%25'",
       "HCAD_NUM,acct_num,owner_name_1,owner_name_2,site_str_num,site_str_name,site_city,site_zip,mail_addr_1,confidential_flag",
     ],
     "tx-collin": [
-      "(UPPER(GIS_DBO_AD_Entity_file_as_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(GIS_DBO_AD_Entity_confidential_%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%25T%25'",
+      "(UPPER(GIS_DBO_AD_Entity_file_as_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20UPPER(CAST(GIS_DBO_AD_Entity_confidential_%20AS%20VARCHAR(255)))%20NOT%20LIKE%20'%25T%25'",
       "GIS_DBO_AD_Entity_file_as_name,GIS_DBO_AD_Entity_situs_display,GIS_DBO_Parcel_PROP_ID,GIS_DBO_Parcel_GEO_ID,GIS_DBO_AD_Entity_confidential_",
     ],
     "tx-ector": [
-      "(UPPER(owner_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(conf_flg%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%251%25'",
+      "(UPPER(owner_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20UPPER(CAST(conf_flg%20AS%20VARCHAR(255)))%20NOT%20LIKE%20'%251%25'",
       "PIN,strap,owner_name,owner_addr,conf_flg",
     ],
   };
@@ -273,18 +277,31 @@ test("CONTROL Kane IL carries no flag, and its owner query is byte-identical to 
 });
 
 test("every flagged endpoint in the installed atlas gets the exclusion in its owner query", () => {
-  let flagged = 0;
-  for (const c of findState("texas").counties) {
-    for (const ep of c.endpoints) {
-      if (!ep.confidentialFlag) continue;
-      flagged++;
-      const p = ownerSearchPolicy(c, ep);
-      assert.ok(p.confidential, `${c.id} reports its flag`);
-      const where = new URL(buildArcgisOwnerQuery(ep, p, "SMITH")).searchParams.get("where");
-      assert.ok(where.endsWith(`) AND ${p.confidential.where}`), `${c.id}: ${where}`);
+  // Spelled out per county, never derived from p.confidential.where, so a
+  // weakened exclusion fails here. A county the atlas newly flags fails too,
+  // until its full clause is written into this table.
+  const expected = {
+    "tx-harris":
+      "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
+    "tx-collin":
+      "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%'",
+    "tx-ector":
+      "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%'",
+  };
+  const seen = [];
+  for (const stateFile of atlas.byStateSlug.values()) {
+    for (const c of stateFile.counties) {
+      for (const ep of c.endpoints) {
+        if (ep.confidentialFlag === undefined) continue;
+        seen.push(c.id);
+        const p = ownerSearchPolicy(c, ep);
+        assert.equal(p.confidential?.kind, "exclude", `${c.id} reports a well-formed flag`);
+        const where = new URL(buildArcgisOwnerQuery(ep, p, "SMITH")).searchParams.get("where");
+        assert.equal(where, expected[c.id], `${c.id}: the full sample where`);
+      }
     }
   }
-  assert.ok(flagged >= 3, `the installed atlas flags at least Harris, Collin and Ector (saw ${flagged})`);
+  assert.deepEqual(seen.sort(), Object.keys(expected).sort(), "every flagged county in the installed atlas has a pinned clause");
 });
 
 test("synthetic: a longer value is an equality test, several values AND together, the scope stays first", () => {
@@ -295,7 +312,7 @@ test("synthetic: a longer value is an equality test, several values AND together
   });
   assert.equal(
     ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
-    "((CNTY=7) AND UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND CAST(CONF AS VARCHAR(255)) NOT LIKE '%Y%' AND CAST(CONF AS VARCHAR(255)) <> 'SEALED'",
+    "((CNTY=7) AND UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) <> 'SEALED'",
   );
 });
 
@@ -315,15 +332,78 @@ test("synthetic: a flag column already among the searchable fields is not reques
   assert.equal(url.searchParams.get("outFields"), "OWNER_NAME");
 });
 
+test("synthetic: a lowercase flag value becomes uppercase in the clause, against an UPPERed cell", () => {
+  const c = confidentialExclusion({ field: "CONF", values: ["y", "sealed"] });
+  assert.deepEqual(c, {
+    kind: "exclude",
+    field: "CONF",
+    where: "UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) <> 'SEALED'",
+  });
+});
+
+// A flag that is PRESENT but malformed must never read as "no flag": that
+// would drop the exclusion and hand out the owners it exists to keep out.
+const MALFORMED_FLAGS = [
+  ["empty values", { field: "CONF", values: [] }, "the flag lists no values"],
+  ["missing values", { field: "CONF" }, "the flag lists no values"],
+  ["missing field", { values: ["Y"] }, "the flag names no usable column"],
+  ["empty field", { field: "", values: ["Y"] }, "the flag names no usable column"],
+  ["field that is not an identifier", { field: "CONF) OR (1=1", values: ["Y"] }, "the flag names no usable column"],
+  ["non-string value", { field: "CONF", values: [1] }, "a flag value is not a non-empty string"],
+  ["empty-string value", { field: "CONF", values: ["Y", ""] }, "a flag value is not a non-empty string"],
+  ["value with a line break", { field: "CONF", values: ["Y\nN"] }, "a flag value is not a non-empty string"],
+  ["null flag", null, "the flag record is not an object"],
+];
+
+for (const [label, flag, problem] of MALFORMED_FLAGS) {
+  test(`synthetic malformed flag (${label}): no owner query, no sample of either kind, the flag reported incomplete`, () => {
+    const ep = {
+      ...pagingEndpoint,
+      sampleQuery: `${pagingEndpoint.url}/query?where=UPPER(OWNER_NAME)%20LIKE%20'%25SMITH%25'&f=json`,
+      confidentialFlag: flag,
+    };
+    const p = ownerSearchPolicy({}, ep);
+    assert.equal(p.kind, "confidential_flag_incomplete");
+    assert.equal(p.field, null, "no owner column is offered");
+    assert.equal(p.confidential?.kind, "incomplete");
+    assert.equal(p.confidential.problem, problem);
+    assert.match(p.reason, /flag record is incomplete/);
+    assert.equal(buildArcgisOwnerQuery(ep, p, "SMITH"), "", "build_owner_query gets no URL");
+    assert.throws(() => ownerWhereClause("OWNER_NAME", null, "SMITH", p.confidential), /confidential flag is incomplete/);
+    assert.deepEqual(parcelEndpointSamples(ep, p), { atlas: null, owner: null }, "get_parcel_endpoint prints neither sample");
+    assert.match(confidentialLine(p), /^Confidential flag: present but incomplete \(/);
+    assert.equal(ownerCoverageLabel({ endpoints: [ep] }), "APN only (confidential flag incomplete)");
+  });
+}
+
+test("CONTROL: an endpoint with no flag keeps the atlas sample, and a well-formed flag withholds it", () => {
+  const sampleQuery = `${pagingEndpoint.url}/query?where=1%3D1&f=json`;
+  const plain = { ...pagingEndpoint, sampleQuery };
+  const plainSamples = parcelEndpointSamples(plain, ownerSearchPolicy({}, plain));
+  assert.equal(plainSamples.atlas, sampleQuery);
+  assert.equal(
+    new URL(plainSamples.owner).searchParams.get("where"),
+    "UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')",
+  );
+  const flagged = { ...plain, confidentialFlag: { field: "CONF", values: ["Y"] } };
+  const flaggedSamples = parcelEndpointSamples(flagged, ownerSearchPolicy({}, flagged));
+  assert.equal(flaggedSamples.atlas, null);
+  assert.equal(
+    new URL(flaggedSamples.owner).searchParams.get("where"),
+    "(UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%'",
+  );
+});
+
 // The clause is SQL, so a SQL engine judges it rather than a reading of the
 // string: node:sqlite runs the generated predicate over each layer's measured
 // cell shapes. A NULL cell must drop out (flagged), and so must every flagged
-// shape. SQLite's LIKE ignores ASCII case, unlike some ArcGIS backends, so case
-// is not what this proves; containment and NULL are.
+// shape. SQLite's LIKE ignores ASCII case by default, so the case test below
+// turns on case_sensitive_like, the shape of a backend that compares case.
 const { DatabaseSync } = await import("node:sqlite");
 
-function kept(confidential, type, cells) {
+function kept(confidential, type, cells, { caseSensitive = false } = {}) {
   const db = new DatabaseSync(":memory:");
+  if (caseSensitive) db.exec("PRAGMA case_sensitive_like = ON");
   db.exec(`CREATE TABLE t (${confidential.field} ${type})`);
   const insert = db.prepare("INSERT INTO t VALUES (?)");
   for (const c of cells) insert.run(c);
@@ -349,4 +429,19 @@ test("SQL: Ector's integer cell is read as text: 0 kept; 1, 10 and NULL dropped"
   const ector = county("texas", "tx-ector");
   const { confidential } = ownerSearchPolicy(ector, ector.endpoints[0]);
   assert.deepEqual(kept(confidential, "INTEGER", [0, 1, 10, null]), [0]);
+});
+
+test("SQL, case-sensitive LIKE: Harris still drops a lowercase 'ynnnnnnnnn', and a synthetic 'sealed' drops under <>", () => {
+  // The control first: the pragma does make LIKE compare case here.
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA case_sensitive_like = ON");
+  assert.equal(db.prepare("SELECT 'y' LIKE '%Y%' AS m").get().m, 0, "case_sensitive_like is on");
+  const harris = county("texas", "tx-harris");
+  const { confidential } = ownerSearchPolicy(harris, harris.endpoints[0]);
+  assert.deepEqual(
+    kept(confidential, "TEXT", ["ynnnnnnnnn", "nnnnYnnnnn", "nnnnnnnnnn", null], { caseSensitive: true }),
+    ["nnnnnnnnnn"],
+  );
+  const sealed = confidentialExclusion({ field: "CONF", values: ["Sealed"] });
+  assert.deepEqual(kept(sealed, "TEXT", ["sealed", "SEALED", "open", null], { caseSensitive: true }), ["open"]);
 });

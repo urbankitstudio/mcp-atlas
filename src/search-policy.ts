@@ -22,9 +22,13 @@
  *      every such column `searchable: false`. A query on it hangs or errors
  *      (Orleans Parish OWNERNME1, where a column scan takes ~44 s). The owner
  *      is still returned by a parcel-id or location query.
- *   4. offered: the first owner-name column that is searchable (the column
+ *   4. confidential_flag_incomplete: a searchable owner column exists, but the
+ *      layer's `confidentialFlag` is present and malformed, so no exclusion can
+ *      be built. A malformed flag is never read as "no flag": that would hand
+ *      out the confidential owners the flag exists to keep out.
+ *   5. offered: the first owner-name column that is searchable (the column
  *      test is the UKS classifier's; see OWNER_RE below).
- *   5. no_owner_column: the layer documents no owner column at all.
+ *   6. no_owner_column: the layer documents no owner column at all.
  *
  * Separately from the branch, `scopeWhere` is returned whenever the registry
  * carries one. A shared statewide or regional layer holds every county's rows
@@ -35,7 +39,8 @@
  * atlas's `confidentialFlag` (0.6.43): the county's own column marking an
  * owner whose record must not be shown (Texas Tax Code §25.025; Harris,
  * Collin and Ector). ownerWhereClause ANDs its exclusion after the owner
- * match, and buildArcgisOwnerQuery requests the column.
+ * match, and buildArcgisOwnerQuery requests the column. A flag that is
+ * present but malformed comes back as `{ kind: "incomplete" }`, never null.
  */
 
 import { isReviewedUnservable, offersPagination, reviewedCapability } from "@urbankitstudio/atlas";
@@ -58,6 +63,7 @@ export type OwnerSearchKind =
   | "reviewed_unservable"
   | "attribute_search_unsupported"
   | "owner_unsearchable"
+  | "confidential_flag_incomplete"
   | "no_owner_column";
 
 export interface OwnerSearchPolicy {
@@ -68,15 +74,55 @@ export interface OwnerSearchPolicy {
   reason: string | null;
   /** SQL predicate scoping a shared layer to this county, or null. */
   scopeWhere: string | null;
-  /** The layer's confidential-owner column and the predicate that keeps its flagged rows out, or null. */
-  confidential: ConfidentialExclusion | null;
+  /**
+   * The layer's confidential-owner flag: the exclusion when the flag is well
+   * formed, `incomplete` when it is present but malformed. Null ONLY when the
+   * endpoint carries no flag at all, so a truthy check means "flagged".
+   */
+  confidential: ConfidentialPolicy | null;
 }
 
 export interface ConfidentialExclusion {
+  kind: "exclude";
   /** The flag column, requested with the owner so a reader can drop a flagged row too. */
   field: string;
   /** ANDed into every owner query. */
   where: string;
+}
+
+export interface IncompleteConfidentialFlag {
+  kind: "incomplete";
+  /** The flag column when it is a usable identifier, else null. */
+  field: string | null;
+  /** What is wrong with the flag record. */
+  problem: string;
+}
+
+export type ConfidentialPolicy = ConfidentialExclusion | IncompleteConfidentialFlag;
+
+// A bare column identifier: the field is written into the SQL unquoted, so
+// nothing else may pass. A dotted (joined-layer) name is refused too, which
+// fails closed.
+const FLAG_FIELD_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// A value is a SQL literal and is printed in the answer, so a control
+// character or line separator makes the flag incomplete rather than printed.
+const FLAG_VALUE_BAD_CHAR_RE = /[\u0000-\u001F\u007F\u2028\u2029]/;
+
+function flagProblem(flag: unknown): { field: string | null; problem: string | null } {
+  if (typeof flag !== "object" || flag === null) {
+    return { field: null, problem: "the flag record is not an object" };
+  }
+  const { field, values } = flag as { field?: unknown; values?: unknown };
+  const goodField = typeof field === "string" && FLAG_FIELD_RE.test(field) ? field : null;
+  if (!goodField) return { field: null, problem: "the flag names no usable column" };
+  if (!Array.isArray(values) || values.length === 0) {
+    return { field: goodField, problem: "the flag lists no values" };
+  }
+  const bad = values.find(
+    (v) => typeof v !== "string" || v.trim().length === 0 || FLAG_VALUE_BAD_CHAR_RE.test(v),
+  );
+  if (bad !== undefined) return { field: goodField, problem: "a flag value is not a non-empty string" };
+  return { field: goodField, problem: null };
 }
 
 /**
@@ -86,12 +132,25 @@ export interface ConfidentialExclusion {
  * `NOT LIKE '%V%'` (Harris packs one Y/N per ownership slot, "YNNNNNNNNN",
  * which an equality test would keep); a longer value is `<> 'V'`.
  *
+ * FAIL CLOSED ON MALFORMED METADATA. Only an absent flag (undefined) means
+ * "unflagged". A flag that is present but whose field is not a bare
+ * identifier, whose values are missing or empty, or whose values are not
+ * non-empty strings comes back `incomplete`: ownerSearchPolicy then offers no
+ * owner query, and get_parcel_endpoint withholds the atlas's sample query.
+ *
  * The cell is CAST to text first. Ector's conf_flg is a small integer, and its
  * server answers `conf_flg NOT LIKE '%1%'` (and `<> '1'`) with an ArcGIS error
  * (code 400, inside an HTTP 200 response), which would break every Ector owner
  * query; the cast form answers on all three
  * layers with the same counts as the bare form (measured 2026-10-25). The atlas
  * already reads the cell as text.
+ *
+ * The cast cell is UPPERed and so is each value, as the atlas compares after
+ * uppercasing: `UPPER(CAST(f AS VARCHAR(255))) NOT LIKE '%Y%'`. A backend whose
+ * LIKE is case-sensitive would otherwise keep a "y" cell. Measured live on
+ * 2026-10-25, Harris and Collin already compare case-insensitively, and the
+ * UPPER form keeps the same rows as the bare form (Harris 1,541,671, Collin
+ * 435,783); Ector answers the UPPER form with 77,042.
  *
  * The cell is NOT trimmed: TRIM(...) gets the same ArcGIS error on all three
  * layers. So a
@@ -105,17 +164,40 @@ export interface ConfidentialExclusion {
  * outside the clause live. Never COALESCE the cell to '' here: that would serve
  * them. This server stays fail-closed on a NULL cell.
  */
-export function confidentialExclusion(flag: ConfidentialFlag | undefined): ConfidentialExclusion | null {
-  if (!flag || flag.values.length === 0) return null;
-  const cell = `CAST(${flag.field} AS VARCHAR(255))`;
+export function confidentialExclusion(flag: ConfidentialFlag | undefined): ConfidentialPolicy | null {
+  if (flag === undefined) return null;
+  const { field, problem } = flagProblem(flag);
+  if (problem !== null || field === null) {
+    return { kind: "incomplete", field, problem: problem ?? "the flag names no usable column" };
+  }
+  const cell = `UPPER(CAST(${field} AS VARCHAR(255)))`;
   const where = flag.values
-    .map((v) =>
-      v.length === 1
-        ? `${cell} NOT LIKE '%${escapeSqlLiteral(v)}%'`
-        : `${cell} <> '${escapeSqlLiteral(v)}'`,
-    )
+    .map((v) => {
+      const literal = escapeSqlLiteral(v.toUpperCase());
+      return v.length === 1 ? `${cell} NOT LIKE '%${literal}%'` : `${cell} <> '${literal}'`;
+    })
     .join(" AND ");
-  return { field: flag.field, where };
+  return { kind: "exclude", field, where };
+}
+
+/** The reason build_owner_query and the Owner line give for a malformed flag. */
+export function incompleteFlagReason(flag: IncompleteConfidentialFlag): string {
+  return `the layer flags confidential owners${flag.field ? ` in ${flag.field}` : ""}, but its flag record is incomplete (${flag.problem}), so no owner query could keep them out`;
+}
+
+/**
+ * The Confidential flag line find_county, get_parcel_endpoint and
+ * build_owner_query print, so a caller ANDs the exclusion into any query of
+ * their own, as with the scope. A malformed flag is reported as present but
+ * incomplete, never left out.
+ */
+export function confidentialLine(owner: Pick<OwnerSearchPolicy, "confidential">): string | null {
+  const c = owner.confidential;
+  if (!c) return null;
+  if (c.kind === "incomplete") {
+    return `Confidential flag: present but incomplete (${c.problem}); no exclusion can be built, so no owner query is offered on this layer`;
+  }
+  return `Confidential flag: ${c.where} (the county flags confidential owners in ${c.field}; AND this into every query, and never show or pass on a flagged row)`;
 }
 
 // THE OWNER-COLUMN TEST, copied VERBATIM from the UKS canonical classifier:
@@ -165,6 +247,9 @@ export function ownerSearchPolicy(
   }
   const named = endpoint.searchFields.filter(isOwnerNameColumn);
   const usable = named.find((sf) => sf.searchable !== false);
+  if (usable && confidential?.kind === "incomplete") {
+    return refuse("confidential_flag_incomplete", incompleteFlagReason(confidential));
+  }
   if (usable) return { kind: "offered", field: usable.name, reason: null, scopeWhere, confidential };
   if (named.length > 0) return refuse("owner_unsearchable", OWNER_UNSEARCHABLE_REASON);
   return refuse("no_owner_column", null);
@@ -192,14 +277,18 @@ export function escapeSqlLiteral(value: string): string {
  * come from here, so the two can never disagree about the scope, the exclusion
  * or the escaping. The scope is curated registry text, not user input, so it
  * is not escaped. A layer with no confidential flag gets exactly the clause it
- * got before the flag existed.
+ * got before the flag existed. An incomplete flag throws: there is no clause
+ * that keeps its owners out, so none is built.
  */
 export function ownerWhereClause(
   field: string,
   scopeWhere: string | null,
   ownerName: string,
-  confidential: ConfidentialExclusion | null,
+  confidential: ConfidentialPolicy | null,
 ): string {
+  if (confidential?.kind === "incomplete") {
+    throw new Error(`no owner query on a layer whose confidential flag is incomplete (${confidential.problem})`);
+  }
   const match = `UPPER(${field}) LIKE UPPER('%${escapeSqlLiteral(ownerName)}%')`;
   const scoped = scopeWhere ? `(${scopeWhere}) AND ${match}` : match;
   return confidential ? `(${scoped}) AND ${confidential.where}` : scoped;
@@ -216,6 +305,9 @@ export function ownerWhereClause(
  *                          reached by geometry, which also returns owner fields.
  *   "APN only (owner column not searchable)"
  *                          an owner column exists but the county marks it unsearchable.
+ *   "APN only (confidential flag incomplete)"
+ *                          an owner column exists but the layer's confidential flag
+ *                          is malformed, so no owner query is offered.
  *   "APN only"             no endpoint documents an owner column.
  */
 export function ownerCoverageLabel(
@@ -228,6 +320,7 @@ export function ownerCoverageLabel(
     return "location queries only";
   }
   if (kinds.includes("owner_unsearchable")) return "APN only (owner column not searchable)";
+  if (kinds.includes("confidential_flag_incomplete")) return "APN only (confidential flag incomplete)";
   return "APN only";
 }
 
@@ -250,7 +343,7 @@ export function buildArcgisOwnerQuery(
   const fields = endpoint.searchFields.filter((sf) => sf.searchable).map((sf) => sf.name);
   // The flag column comes back with the owner, as the atlas asks, so whoever
   // reads the rows can drop a flagged one as well.
-  if (owner.confidential && !fields.includes(owner.confidential.field)) {
+  if (owner.confidential?.kind === "exclude" && !fields.includes(owner.confidential.field)) {
     fields.push(owner.confidential.field);
   }
   const liveFields = fields.join(",");
@@ -262,6 +355,22 @@ export function buildArcgisOwnerQuery(
     `&f=json` +
     (offersPagination(endpoint) ? `&resultRecordCount=25` : "")
   );
+}
+
+/**
+ * The two sample queries get_parcel_endpoint prints. The atlas's own sample is
+ * an owner query written before the flag existed, so it is withheld whenever
+ * the layer carries a flag at all, well formed or not. The sample owner query
+ * is built with the exclusion, and only where an owner query is offered.
+ */
+export function parcelEndpointSamples(
+  endpoint: Pick<EndpointRecord, "url" | "searchFields" | "supportsPagination" | "sampleQuery">,
+  owner: OwnerSearchPolicy,
+): { atlas: string | null; owner: string | null } {
+  return {
+    atlas: endpoint.sampleQuery && owner.confidential === null ? endpoint.sampleQuery : null,
+    owner: owner.field ? buildArcgisOwnerQuery(endpoint, owner, "SMITH") : null,
+  };
 }
 
 /** The build_owner_query note on how many rows the query returns. */

@@ -37,6 +37,8 @@ import {
   buildArcgisOwnerQuery,
   ownerQueryRowsNote,
   escapeSqlLiteral,
+  confidentialLine,
+  parcelEndpointSamples,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
 import {
@@ -103,6 +105,9 @@ function ownerLine(owner: OwnerSearchPolicy): string {
   if (owner.kind === "owner_unsearchable") {
     return "Owner field: not searchable by name (column exists; use a parcel-id or location query)";
   }
+  if (owner.kind === "confidential_flag_incomplete") {
+    return `Owner field: not offered - ${owner.reason}`;
+  }
   return owner.reason
     ? `Owner field: NOT AVAILABLE - ${owner.reason}`
     : "Owner field: NONE - this layer publishes no owner column";
@@ -112,16 +117,6 @@ function ownerLine(owner: OwnerSearchPolicy): string {
 function scopeLine(owner: OwnerSearchPolicy): string | null {
   return owner.scopeWhere
     ? `Scope: ${owner.scopeWhere} (shared layer; AND this into every query)`
-    : null;
-}
-
-/**
- * A layer's confidential-owner flag (Texas Tax Code §25.025), printed so a
- * caller ANDs the exclusion into any query of their own, as with the scope.
- */
-function confidentialLine(owner: OwnerSearchPolicy): string | null {
-  return owner.confidential
-    ? `Confidential flag: ${owner.confidential.where} (the county flags confidential owners in ${owner.confidential.field}; AND this into every query, and never show or pass on a flagged row)`
     : null;
 }
 
@@ -452,9 +447,7 @@ server.registerTool(
     countyRecord.endpoints.forEach((ep, i) => {
       const owner = ownerSearchPolicy(countyRecord, ep);
       const ownerField = owner.field;
-      const sampleOwnerUrl = ownerField
-        ? buildArcgisOwnerQuery(ep, owner, "SMITH")
-        : null;
+      const samples = parcelEndpointSamples(ep, owner);
       const scope = scopeLine(owner);
       const confidential = confidentialLine(owner);
 
@@ -475,18 +468,17 @@ server.registerTool(
         .forEach((sf) => lines.push(`    ${sf.name.padEnd(20)} – ${sf.label}`));
       lines.push("");
       lines.push(`  ${ownerLine(owner)}`);
-      // The atlas's sample is an owner query written before the flag existed,
-      // so on a flagged layer it would serve confidential owners. The sample
-      // owner query below carries the exclusion.
-      if (ep.sampleQuery && !owner.confidential) {
+      // parcelEndpointSamples withholds the atlas's sample on any flagged
+      // layer; the sample owner query carries the exclusion.
+      if (samples.atlas) {
         lines.push("");
         lines.push("  Sample query (from atlas):");
-        lines.push(`    ${ep.sampleQuery}`);
+        lines.push(`    ${samples.atlas}`);
       }
-      if (sampleOwnerUrl) {
+      if (samples.owner) {
         lines.push("");
         lines.push('  Sample owner query (SMITH — replace with target name):');
-        lines.push(`    ${sampleOwnerUrl}`);
+        lines.push(`    ${samples.owner}`);
       }
       lines.push("");
       lines.push(
@@ -512,7 +504,7 @@ server.registerTool(
   {
     title: "Build an owner-name search URL for one county",
     description:
-      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. Where the layer carries the county's own confidential-owner flag (Texas Tax Code §25.025), flagged rows are excluded in the query, a row with no flag recorded counts as flagged, and the flag column is returned with each row. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
+      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. Where the layer carries the county's own confidential-owner flag (Texas Tax Code §25.025), flagged rows are excluded in the query, a row with no flag recorded counts as flagged, and the flag column is returned with each row. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), when its owner column is not searchable by name (use a parcel-id or location query instead), or when the layer's confidential-owner flag is present but incomplete, so no exclusion can be built.",
     inputSchema: {
       state: z
         .string()
@@ -589,6 +581,9 @@ server.registerTool(
           case "reviewed_unservable":
             refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
             break;
+          case "confidential_flag_incomplete":
+            refusal = `OWNER SEARCH REFUSED for ${place}: ${owner.reason}.\nNo owner query is offered on this layer until its flag record is fixed.`;
+            break;
           default:
             refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
         }
@@ -614,7 +609,7 @@ server.registerTool(
           ``,
           `Notes:`,
           `  - ${ownerQueryRowsNote(ep)}`,
-          ...(owner.confidential
+          ...(owner.confidential?.kind === "exclude"
             ? [
                 `  - Owners the county flags confidential are excluded, and a row with no flag recorded (NULL) counts as flagged. ${owner.confidential.field} comes back with each row: if one is flagged, do not show or pass it on`,
               ]

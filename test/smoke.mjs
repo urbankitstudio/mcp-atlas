@@ -631,23 +631,42 @@ async function run() {
   // Collin and Ector flag an owner whose record must not be shown (Texas Tax
   // Code §25.025). The owner query the server hands out must exclude those rows and
   // request the column, and get_parcel_endpoint must not print the atlas's own
-  // sample owner query, which predates the flag. The expected clause is spelled
-  // out here, not derived, so a changed clause fails. Kane IL is the CONTROL.
+  // sample owner query, which predates the flag. The expected clauses are
+  // spelled out here, whole and not derived, so a changed or weakened clause
+  // (`1=1 OR (...) AND <exclusion>` included) fails. Kane IL is the CONTROL.
   const flaggedCounties = [
-    ["Harris", "texas", "CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'", "confidential_flag"],
-    ["Collin", "texas", "CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%T%'", "GIS_DBO_AD_Entity_confidential_"],
+    [
+      "Harris",
+      "texas",
+      "UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
+      "confidential_flag",
+      "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%'",
+    ],
+    [
+      "Collin",
+      "texas",
+      "UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%'",
+      "GIS_DBO_AD_Entity_confidential_",
+      "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%'",
+    ],
     // Ector is where the CAST matters: conf_flg is a small integer, and its
     // server answers the uncast `conf_flg NOT LIKE '%1%'` with an ArcGIS error
     // (code 400, inside an HTTP 200 response).
-    ["Ector", "texas", "CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'", "conf_flg"],
+    [
+      "Ector",
+      "texas",
+      "UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%'",
+      "conf_flg",
+      "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%'",
+    ],
   ];
   let confId = 200;
-  for (const [name, slug, exclusion, field] of flaggedCounties) {
+  for (const [name, slug, exclusion, field, smithWhere] of flaggedCounties) {
     const record = atlas.byStateSlug.get(slug)?.counties.find((c) => c.county === name);
     sendMessage(proc, confId++, "tools/call", { name: "build_owner_query", arguments: { state: "TX", county: name, owner_name: "SMITH" } });
     const ownerText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
     const whereLine = ownerText.split("\n").find((l) => l.startsWith("WHERE clause: ")) ?? "";
-    assert(whereLine.endsWith(`) AND ${exclusion}`), `build_owner_query excludes ${name} TX's confidential owners in the WHERE clause`);
+    assert(whereLine === `WHERE clause: ${smithWhere}`, `build_owner_query prints ${name} TX's whole WHERE clause, exclusion included`);
     const url = ownerText.split("\n").find((l) => l.startsWith("https://")) ?? "";
     const params = url ? new URL(url).searchParams : new URLSearchParams();
     assert(params.get("where") === whereLine.slice("WHERE clause: ".length), `${name} TX's query URL carries the same WHERE clause`);
@@ -666,9 +685,10 @@ async function run() {
     const epLines = epText.split("\n");
     const sample = (epLines[epLines.findIndex((l) => l.startsWith("  Sample owner query")) + 1] ?? "").trim();
     const sampleParams = sample.startsWith("https://") ? new URL(sample).searchParams : new URLSearchParams();
+    assert(sampleParams.get("where") === smithWhere, `get_parcel_endpoint's sample owner query for ${name} TX carries exactly the whole where`);
     assert(
-      (sampleParams.get("where") ?? "").endsWith(`) AND ${exclusion}`) && (sampleParams.get("outFields") ?? "").split(",").includes(field),
-      `get_parcel_endpoint's sample owner query for ${name} TX carries the exclusion and requests ${field}`,
+      (sampleParams.get("outFields") ?? "").split(",").includes(field),
+      `get_parcel_endpoint's sample owner query for ${name} TX requests ${field}`,
     );
 
     sendMessage(proc, confId++, "tools/call", { name: "find_county", arguments: { query: `${name} TX` } });
