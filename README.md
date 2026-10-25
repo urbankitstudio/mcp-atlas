@@ -4,11 +4,11 @@
 
 [![mcp-atlas MCP server](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas/badges/card.svg)](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas)
 
-Query the parcel ArcGIS REST endpoints of 499 counties across 51 US states (50 states plus DC), 497 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
+Query the parcel ArcGIS REST endpoints of 501 counties across 51 US states (50 states plus DC), 496 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 499 counties across 51 US states (50 states plus DC), 497 endpoints, 497 of them live (atlas 0.6.40). 470 of the counties have an endpoint; for the other 29 the atlas records why not (see "A county we cannot serve" below).
+**Coverage:** 501 counties across 51 US states (50 states plus DC), 496 endpoints, 496 of them live (atlas 0.6.43). 469 of the counties have an endpoint; for the other 32 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
@@ -126,6 +126,7 @@ What each Coverage label promises:
 | `APN only (county publishes no owner name)` | A reviewed record says the county serves no usable owner name |
 | `location queries only` | No endpoint answers attribute searches; parcels are reached by geometry, which also returns owner fields |
 | `APN only (owner column not searchable)` | An owner column exists but the county marks it unsearchable by name; a parcel-id or location query returns it |
+| `APN only (confidential flag incomplete)` | An owner column exists, but the layer's confidential-owner flag is malformed, so no owner query is offered |
 | `APN only` | No endpoint documents an owner column |
 
 ---
@@ -153,7 +154,10 @@ layer index, searchable fields, owner field (or why no owner query is offered),
 the county's `Scope:` predicate when the layer is shared statewide or
 regionally, a generic sample `?where=…&f=json` query and the UrbanKit deep-link
 for one county. For a named owner, use
-`build_owner_query` rather than editing the sample query by hand.
+`build_owner_query` rather than editing the sample query by hand. On a layer
+that flags confidential owners it prints the `Confidential flag:` exclusion
+to AND into any query of your own, and leaves out the atlas's sample query,
+which predates the flag.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -174,12 +178,50 @@ returns a URL you can fetch or open. On a shared statewide or regional layer
 is ANDed in front, as
 `(scope) AND UPPER(field) LIKE …`, so only that county's rows come back.
 
+Some layers publish an owner whose record must not be shown, and flag it in a
+column beside the owner: Texas Tax Code §25.025 lets peace officers, judges,
+family-violence victims and others keep their home address confidential, and
+Harris and Collin mark those accounts (Ector carries a forward guess). On such
+a layer the query excludes flagged rows, as
+`(…) AND UPPER(CAST(flag AS VARCHAR(255))) NOT LIKE '%Y%'`, a contains test
+for every flag value (Harris packs one flag per ownership slot, `YNNNNNNNNN`).
+A value longer than one character is a contains test too, which deliberately
+excludes more than the atlas's trimmed-equality rule: for `SEALED`, the cells
+` SEALED` and `UNSEALED` drop out as well. The cast lets one form serve a text
+or an integer column, and UPPER on both sides compares the flag without regard
+to case. A row with no flag recorded (NULL) counts as flagged and drops
+out. The flag column comes back with each row; never show or pass on a row
+whose flag is set.
+
 An endpoint is refused, with the reason, rather than handed a query that finds
-nothing or hangs:
+nothing, hangs, or serves confidential owners:
 
 - a reviewed record says the county publishes no usable owner name;
 - the layer serves no attribute search at all (query it by location instead);
-- the owner column is not searchable by name (use a parcel-id or location query).
+- the owner column is not searchable by name (use a parcel-id or location query);
+- the layer carries a confidential-owner flag that is present but incomplete
+  (no column, no values, or a value that is not ASCII letters and digits
+  only), so no exclusion can be built.
+
+A refusal that points to a location, parcel-id or address read also prints the
+layer's `Confidential flag:` line, and on a flagged layer its advice follows
+the flag. With a well-formed flag, the read must request the flag column in
+`outFields` and drop every row whose flag cell is NULL or contains a flag
+value; a layer with no attribute search takes no where clause, so that
+filtering is the reader's, and its `Confidential flag:` line gives that row
+rule in place of "AND this into every query". With an incomplete flag, the refusal advises no
+read at all: do not read owner fields on that layer. The Owner line that
+`find_county` and `get_parcel_endpoint` print says the same.
+
+Every free-text argument of every tool refuses control characters (CR, LF,
+TAB, NUL and the rest of U+0000 to U+001F, U+007F, and the C1 controls U+0080
+to U+009F), the line and paragraph separators U+2028 and U+2029, and the whole
+Unicode Bidi_Control set (U+061C, U+200E, U+200F, U+202A to U+202E and U+2066
+to U+2069), so an argument echoed into an answer cannot start a line of its
+own there or reorder how the text around it displays. Other invisible
+characters, such as U+200B, U+FEFF and the soft hyphen U+00AD, still pass. A
+validation error on a tool argument never repeats the value it refused (the
+MCP SDK's own error for an unknown tool name does quote that name).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -311,4 +353,4 @@ over stdio, nothing more. It still never executes a query or returns a parcel re
 
 ## License
 
-MIT — © 2026 UrbanKit Studio
+MIT — © 2026 UrbanKit Studio LLC

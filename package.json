@@ -1,8 +1,8 @@
 {
   "name": "@urbankitstudio/mcp-atlas",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "mcpName": "io.github.urbankitstudio/mcp-atlas",
-  "description": "Query the parcel ArcGIS REST endpoints of 499 counties across 51 US states (50 states plus DC), 497 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP), plus verified city code-violation, building-permit and zoning-case datasets.",
+  "description": "Query the parcel ArcGIS REST endpoints of 501 counties across 51 US states (50 states plus DC), 496 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP), plus verified city code-violation, building-permit and zoning-case datasets.",
   "keywords": [
     "mcp",
     "mcp-server",
@@ -27,7 +27,7 @@
   "bugs": {
     "url": "https://github.com/urbankitstudio/mcp-atlas/issues"
   },
-  "author": "UrbanKit Studio <contact@urbankitstudio.com>",
+  "author": "UrbanKit Studio LLC <contact@urbankitstudio.com>",
   "license": "MIT",
   "type": "module",
   "main": "./dist/server.js",
@@ -46,12 +46,12 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node test/smoke.mjs",
     "test:currency": "node --test test/atlas-currency.test.mjs",
-    "test:policy": "node --test test/search-policy.test.mjs test/city-datasets.test.mjs",
+    "test:policy": "node --test test/search-policy.test.mjs test/city-datasets.test.mjs test/confirm-registry.test.mjs test/coverage-claims.test.mjs test/tool-input.test.mjs test/log-hygiene.test.mjs",
     "prepublishOnly": "npm run typecheck && npm run build && npm run smoke && npm run test:policy"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@urbankitstudio/atlas": "^0.6.40"
+    "@urbankitstudio/atlas": "^0.6.43"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

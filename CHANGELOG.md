@@ -6,6 +6,89 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 this monorepo to draw from.
 
+## 0.3.11 — 2026-10-25
+
+Atlas ^0.6.43, the confidential-owner exclusion, the publisher's data credit, and a publish step
+that tells an unreachable MCP Registry from an unlisted version.
+
+- **Confidential owners are excluded from every owner query.** Atlas 0.6.43's `confidentialFlag`
+  names the column where a county flags an owner whose record must not be shown (Texas Tax Code
+  §25.025): Harris (`confidential_flag`, `Y`) and Collin (`GIS_DBO_AD_Entity_confidential_`, `T`),
+  plus Ector (`conf_flg`, `1`, a forward guess). `build_owner_query` and `get_parcel_endpoint`'s
+  sample owner query AND the exclusion in after the owner match and request the flag column. Every
+  value is a contains test (Harris packs one flag per ownership slot, `YNNNNNNNNN`), a value longer
+  than one character included. That deliberately excludes more than the atlas's trimmed-equality
+  rule for a longer value (for `SEALED`, ` SEALED` and `UNSEALED` drop out too), which is the
+  fail-closed direction and needs no trim. A NULL cell counts as flagged and drops out: measured live, 5,235
+  Harris rows and 15,003 Collin rows. The cell is cast to text and uppercased, and so is each
+  value: `UPPER(CAST(field AS VARCHAR(255))) NOT LIKE '%V%'`. The cast is there because Ector's
+  flag is an integer column and its server rejects the bare `NOT LIKE` with an ArcGIS error
+  (code 400, inside an HTTP 200 response). The UPPER is there because the atlas compares after
+  uppercasing, and a backend whose LIKE compares case would otherwise keep a lowercase flag. That
+  matches the atlas's JavaScript rule for ASCII cells only: SQL UPPER on a non-ASCII cell can
+  differ from JavaScript's (a cell `ß` against a value `SS`, or a Turkish dotless i), a known
+  limit that today's flag cells (Y/N, T/F and integers) do not reach. Measured live on 2026-10-25, Harris and Collin already compare case-insensitively, and the
+  UPPER form keeps the same rows as the bare form (Harris 1,541,671, Collin 435,783); Ector
+  answers it with 77,042. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
+  README rule for a one-character value is the contains test, which this follows; both select the
+  same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` gets the same ArcGIS error
+  on all three layers. A flag that is present but malformed (its field not a bare column name, no
+  values, or a value that is not ASCII letters and digits only, such as `ß`, `ı`, ` Y` or `[`) is
+  never read as no flag: `build_owner_query` refuses an owner query on that layer,
+  `get_parcel_endpoint` prints neither sample query, `list_counties` reads
+  `APN only (confidential flag incomplete)`, and every tool reports the flag as present but
+  incomplete. Every `build_owner_query` refusal that points to a location, parcel-id or address
+  read also prints the layer's `Confidential flag:` line, and its advice follows the flag: with a
+  well-formed flag the read must request the flag column and drop every row whose flag cell is
+  NULL or contains a flag value (a layer with no attribute search takes no where clause, so that
+  filtering is the reader's, and its `Confidential flag:` line gives that row rule in place of
+  "AND this into every query"), and with an incomplete flag it advises no read of owner fields at
+  all. The Owner line of `find_county` and `get_parcel_endpoint` says the same. `find_county` and
+  `get_parcel_endpoint` print a `Confidential flag:` line, as they do the Scope line.
+  `get_parcel_endpoint` leaves out the atlas's `sampleQuery` on a flagged layer, which predates the
+  flag, and prints the sample owner query built with the exclusion instead. Counties without a
+  confidential flag get the same owner queries as in 0.3.10, and credited counties also print the
+  new Data credit line.
+- **Free-text arguments refuse control characters.** Every free-text argument of every tool
+  (`owner_name`, `state`, `county`, `query`, `city`, `street`) now refuses the ASCII control
+  characters U+0000 to U+001F and U+007F, which take in CR, LF and TAB, the C1 controls U+0080 to
+  U+009F (NEL and CSI among them), the line and paragraph separators U+2028 and U+2029, and the
+  whole Bidi_Control set (U+061C, U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069), with a
+  clear error. Other invisible characters (U+200B, U+FEFF, the soft hyphen) still pass. An
+  argument is echoed into the answer, and a line break in `owner_name` could print a fake
+  `Query URL:` line carrying an unfiltered URL there. This predates 0.3.11. `find_county` accepted
+  a tab between words since 0.3.8 and now refuses it; a space or a comma still works. A bad
+  `get_city_datasets` `kind` now gets "kind must be violations, permits or zoning" instead of
+  zod's error, which quoted the value it refused.
+- **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
+  county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
+  layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
+- **Atlas ^0.6.43.** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
+  from posting ownership online). Laurel KY is recorded with no public service. Thurston WA and
+  Charleston SC lose their endpoint (licence-restricted), so they get the coverage answer. Totals:
+  501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without. These
+  numbers in README.md, the package.json description and the server.json description are now
+  written by `node scripts/sync-coverage.mjs` from the installed atlas, and
+  `test/coverage-claims.test.mjs` fails in `test:policy` when one is stale.
+- **publish.yml: Confirm on the MCP Registry (#87).** Run 39183889390 failed this step on eight 20 s
+  timeouts with 0 bytes received while 0.3.10 had landed. The step (now
+  `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
+  when the registry answers and no page lists it, and ends as a warning, after a 30..120 s backoff,
+  when the registry cannot be reached. It prints the length of a repeated cursor, never the
+  cursor, and every line it logs is escaped first: a control character or line separator, the
+  first `:` of any `::` and the first `#` of any `##[` are written as visible `\uXXXX` escapes,
+  so no logged line carries a line break, a `::` or a `##[` it did not write itself. Its tests
+  run in `test:policy`, name each hostile fixture by a label rather than its text, and
+  `test/log-hygiene.test.mjs` fails `test:policy` when any test title could form a workflow
+  command; smoke withholds and fails such an assertion label. The read-back is its own `confirm-registry` job (`needs: publish`,
+  `contents: read`, no environment), so its wait of up to 14 minutes holds no npm publish
+  identity, and the publish job's timeout goes from 27 to 25 minutes. The job's gate is
+  `!cancelled()` rather than success, so after a publish-job failure that follows the registry
+  publish it is still eligible to run; whether it reads the entry back then rests on the failed
+  job's output reaching it, which GitHub's docs do not state outright. A dry run or an earlier
+  failure leaves nothing to read back, and it skips.
+- UrbanKit Studio LLC is named as the license holder and package author.
+
 ## 0.3.10 — 2026-10-18
 
 Atlas ^0.6.40, a dependency bump only. The server code is unchanged.
