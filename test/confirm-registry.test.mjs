@@ -153,12 +153,49 @@ test("main maps the outcomes to exit codes and annotations", async () => {
   assert.deepEqual(report({ outcome: "listed", message: "m" }), { code: 0, line: "m" });
 });
 
-test("publish.yml's confirm step runs this script with the server name and version", () => {
+test("a registry cursor carrying a line break cannot start a workflow command in the log", async () => {
+  const hostile = "x\n::error::forged\r::warning::forged" + String.fromCharCode(0x2028) + "::notice::forged";
+  const lines = [];
+  const r = await confirmRegistry({
+    name: NAME,
+    version: "0.3.11",
+    // The same hostile cursor twice, so the walk stops on a repeated cursor
+    // and the cursor lands in both the attempt log and the final message.
+    fetchImpl: () => Promise.resolve(page([entry(NAME, "0.3.10")], hostile)),
+    sleep: async () => {},
+    now: () => 0,
+    log: (line) => lines.push(line),
+  });
+  assert.equal(r.outcome, "bad-response");
+  lines.push(report(r).line);
+  const output = lines.join("\n").split(/\r\n|\r|\n|\u2028|\u2029/);
+  const commands = output.filter((l) => l.trimStart().startsWith("::"));
+  assert.deepEqual(
+    commands,
+    [report(r).line],
+    "the only line that starts with :: is the script's own ::error:: line",
+  );
+  assert.match(report(r).line, /^::error::the MCP Registry answered but did not confirm/);
+  assert.ok(report(r).line.includes("x\\u000a::error::forged"), "the line break is shown escaped");
+});
+
+test("publish.yml's confirm job runs this script with the server name and version, and holds no publish identity", () => {
   const wf = readFileSync(resolve(ROOT, ".github/workflows/publish.yml"), "utf8");
-  const step = wf.slice(wf.indexOf("- name: Confirm on the MCP Registry"), wf.indexOf("- name: Report"));
-  assert.ok(step.length > 0, "the confirm step exists");
-  const code = step.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+  const start = wf.indexOf("\n  confirm-registry:\n");
+  assert.ok(start > 0, "the confirm-registry job exists");
+  const job = wf.slice(start);
+  const code = job.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+  assert.match(code, /\n    needs: publish\n/);
+  assert.match(code, /\n    permissions:\n      contents: read\n    steps:/, "contents: read is its only permission");
+  assert.doesNotMatch(code, /id-token|environment:/, "no OIDC identity and no environment");
+  assert.match(code, /\n    timeout-minutes: \d+\n/);
+  assert.match(code, /- name: Confirm on the MCP Registry/);
+  assert.match(code, /VERSION: \$\{\{ needs\.publish\.outputs\.version \}\}/);
   assert.match(code, /node scripts\/confirm-registry\.mjs "\$NAME" "\$VERSION"/);
   assert.doesNotMatch(code, /curl/, "the old inline curl loop is gone");
+  const publishJob = wf.slice(wf.indexOf("\n  publish:\n"), start);
+  assert.ok(!publishJob.includes("- name: Confirm on the MCP Registry"), "the publish job no longer reads the entry back");
+  const timeout = Number(publishJob.match(/\n    timeout-minutes: (\d+)\n/)?.[1]);
+  assert.ok(timeout > 0 && timeout <= 27, `the publish job's timeout is back at 27 minutes or less (got ${timeout})`);
 });
 

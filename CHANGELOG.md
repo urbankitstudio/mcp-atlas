@@ -60,8 +60,11 @@ that tells an unreachable MCP Registry from an unlisted version.
   timeouts with 0 bytes received while 0.3.10 had landed. The step (now
   `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
   when the registry answers and no page lists it, and ends as a warning, after a 30..120 s backoff,
-  when the registry cannot be reached. Its tests run in `test:policy`. The job timeout goes from 27
-  to 36 minutes.
+  when the registry cannot be reached. Every line it logs escapes control characters, so text
+  from the registry cannot start a workflow command of its own. Its tests run in `test:policy`.
+  The read-back is its own `confirm-registry` job (`needs: publish`, `contents: read`, no
+  environment), so its wait of up to 14 minutes holds no npm publish identity, and the publish
+  job's timeout goes from 27 to 25 minutes.
 - UrbanKit Studio LLC is named as the license holder and package author.
 
 ## 0.3.10 — 2026-10-18

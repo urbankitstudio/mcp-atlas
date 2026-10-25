@@ -69,12 +69,15 @@ jobs:
     # 15 since 0.2.21: after npm ships, the MCP Registry steps can spend up to
     # ~17 minutes in bounded retries (npm visibility wait: 10 x 15 s view + 300 s
     # of backoff = 7.5 min; then 3 x (60 s login + 120 s publish) + 2 x 10 s
-    # waits = 9.3 min) plus up to 14 minutes of read-back (the deadline in
-    # scripts/confirm-registry.mjs; an unreachable registry backs off 30..120 s
-    # between 8 attempts since 0.3.11, #87). With ~5 minutes of install and
-    # gates the worst case is ~35.8 minutes, so 36. Only the post-npm-publish
-    # wait grew; the npm identity is spent by then.
-    timeout-minutes: 36
+    # waits = 9.3 min). With ~5 minutes of install and gates the worst case is
+    # ~21.8 minutes, so 25. The identity stays mintable until this job ends,
+    # whatever step it is on, so the read-back of the registry entry, which
+    # needs no identity, runs in the confirm-registry job below (since 0.3.11,
+    # #87) and adds nothing here.
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      mcpreg: ${{ steps.mcpreg.outputs.published }}
     # npm's Trusted Publisher entry for @urbankitstudio/mcp-atlas names the
     # environment `npm-publish`, so npm checks the OIDC token for an
     # `environment` claim carrying that exact name. GitHub only puts that claim
@@ -414,8 +417,9 @@ jobs:
       # failing within 0.2 s, i.e. `npm view` not yet seeing a version that
       # `npm publish` had just landed; a rerun minutes later went green. So npm
       # visibility gets its own ~5 min wait (10 attempts, backoff 10..40 s). It
-      # runs here, AFTER `npm publish`, where the npm identity is already spent,
-      # so waiting longer holds nothing extra mintable. Login and publish failures
+      # runs here, AFTER `npm publish`, and the identity stays mintable through
+      # it (`login github-oidc` below needs it), so the wait is bounded and
+      # counted in the job timeout above. Login and publish failures
       # are real, not lag, so they keep a short retry (3 attempts, 10 s apart).
       # Each failure names its sub-step and `mcp-publisher` stderr is left
       # unredirected so its own message reaches the log (OIDC prints no token).
@@ -463,24 +467,6 @@ jobs:
           echo "::error::MCP Registry publish failed 3 times for $VERSION."
           exit 1
 
-      # A zero exit from the publisher is not proof. Read the entry back.
-      #
-      # Three outcomes since 0.3.11 (#87): listed passes; a registry that
-      # answers without listing the version FAILS; a registry that cannot be
-      # reached (timeout, refused, 0 bytes) ends as a WARNING after a longer
-      # backoff, because "could not ask" is not "not listed". Run 39183889390
-      # failed here on eight 20 s timeouts with 0 bytes received while 0.3.10
-      # had in fact landed. Every page of the listing is read. The logic and
-      # its tests are scripts/confirm-registry.mjs and
-      # test/confirm-registry.test.mjs.
-      - name: Confirm on the MCP Registry
-        if: ${{ steps.mcpreg.outputs.published == 'true' }}
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          NAME=$(node -p "require('./server.json').name")
-          node scripts/confirm-registry.mjs "$NAME" "$VERSION"
-
       # Values reach this step through `env:`, never through `${{ }}` inside
       # `run:`. An expression interpolated into a shell IS shell, and this step
       # is `if: always()`, so it runs even after every gate has failed -- the
@@ -513,3 +499,42 @@ jobs:
             echo ""
             echo "npm's \`/latest\` has lagged a concluded run by ~80 seconds before, so an immediate read is not evidence of failure."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A zero exit from the publisher is not proof. Read the entry back.
+  #
+  # Its own job since 0.3.11 (#87), so the wait holds no publish identity: no
+  # `environment`, `contents: read` only, no `id-token`. Inside the publish job
+  # the read-back's up to 14 minutes kept `id-token: write` mintable that much
+  # longer. It runs only once the registry publish reported done.
+  #
+  # Three outcomes: listed passes; a registry that answers without listing the
+  # version FAILS; a registry that cannot be reached (timeout, refused,
+  # 0 bytes) ends as a WARNING after a longer backoff, because "could not ask"
+  # is not "not listed". Run 39183889390 failed here on eight 20 s timeouts
+  # with 0 bytes received while 0.3.10 had in fact landed. Every page of the
+  # listing is read. The logic and its tests are scripts/confirm-registry.mjs
+  # and test/confirm-registry.test.mjs.
+  confirm-registry:
+    needs: publish
+    if: ${{ needs.publish.outputs.mcpreg == 'true' }}
+    runs-on: ubuntu-latest
+    # The script's deadline is 14 minutes, checked before each attempt, so a
+    # slow last attempt can run past it; checkout and Node take ~1 minute.
+    # This job holds no publish identity, so the slack costs nothing.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
+
+      - name: Confirm on the MCP Registry
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          NAME=$(node -p "require('./server.json').name")
+          node scripts/confirm-registry.mjs "$NAME" "$VERSION"

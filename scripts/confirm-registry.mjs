@@ -48,6 +48,20 @@ export const DEADLINE_MS = 14 * 60_000;
 
 const UNAVAILABLE_STATUSES = new Set([429, 502, 503, 504]);
 
+/**
+ * Every line this script logs carries text the registry controls (a cursor, an
+ * error message), and the Actions runner reads any log line that starts with
+ * `::` as a workflow command. So every line goes through here first: a control
+ * character or a line separator becomes a visible \uXXXX escape, and the
+ * registry's text can never start a line of its own.
+ */
+export function logSafe(text) {
+  return String(text).replace(
+    /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /** One request. Returns the parsed page, or a classified failure. */
 async function readPage(fetchImpl, url) {
   let res;
@@ -111,7 +125,7 @@ export async function confirmRegistry({
     if (last.kind === "listed") {
       return { outcome: "listed", message: `registry lists ${name}@${version} (page ${last.pages})` };
     }
-    log(`attempt ${attempt} of ${ATTEMPTS}: ${last.kind}${last.detail ? `, ${last.detail}` : ""} (${last.pages} page(s) read)`);
+    log(logSafe(`attempt ${attempt} of ${ATTEMPTS}: ${last.kind}${last.detail ? `, ${last.detail}` : ""} (${last.pages} page(s) read)`));
     if (attempt === ATTEMPTS) break;
     const wait = last.kind === "unreachable" ? transportBackoffMs(attempt) : NOT_LISTED_WAIT_MS;
     if (now() - start + wait + REQUEST_TIMEOUT_MS > DEADLINE_MS) {
@@ -140,9 +154,10 @@ export async function confirmRegistry({
 
 /** The exit code and log line for an outcome: only "listed" and "unreachable" exit 0. */
 export function report(r) {
-  if (r.outcome === "listed") return { code: 0, line: r.message };
-  if (r.outcome === "unreachable") return { code: 0, line: `::warning::${r.message}` };
-  return { code: 1, line: `::error::${r.message}` };
+  const message = logSafe(r.message);
+  if (r.outcome === "listed") return { code: 0, line: message };
+  if (r.outcome === "unreachable") return { code: 0, line: `::warning::${message}` };
+  return { code: 1, line: `::error::${message}` };
 }
 
 export async function main(argv = process.argv.slice(2)) {
