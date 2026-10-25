@@ -23,17 +23,22 @@ that tells an unreachable MCP Registry from an unlisted version.
   server rejects the bare `NOT LIKE` with HTTP 400. The cast form gives the same counts as the bare
   form on Harris and Collin. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
   README rule for a one-character value is the contains test, which this follows; both select the
-  same 435,783 rows live. `find_county` and `get_parcel_endpoint` print a `Confidential owners:`
-  line, as they do the Scope line. `get_parcel_endpoint` leaves out the atlas's `sampleQuery` on a
-  flagged layer, since it predates the flag. Every other county's output is byte-identical to
-  0.3.10's.
+  same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` answers HTTP 400 on all
+  three layers. So a value longer than one character would compare untrimmed under `<>`. No
+  current flag has one, so no verdict changes today. `find_county` and `get_parcel_endpoint`
+  print a `Confidential flag:` line, as they do the Scope line. `get_parcel_endpoint` leaves out the
+  atlas's `sampleQuery` on a flagged layer, which predates the flag, and prints the sample owner
+  query built with the exclusion instead. Every other county's output is byte-identical to 0.3.10's.
 - **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
   county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
   layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
 - **Atlas ^0.6.43.** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
   from posting ownership online). Laurel KY is recorded with no public service. Thurston WA and
   Charleston SC lose their endpoint (licence-restricted), so they get the coverage answer. Totals:
-  501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without.
+  501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without. These
+  numbers in README.md, the package.json description and the server.json description are now
+  written by `node scripts/sync-coverage.mjs` from the installed atlas, and
+  `test/coverage-claims.test.mjs` fails in `test:policy` when one is stale.
 - **publish.yml: Confirm on the MCP Registry (#87).** Run 39183889390 failed this step on eight 20 s
   timeouts with 0 bytes received while 0.3.10 had landed. The step (now
   `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
