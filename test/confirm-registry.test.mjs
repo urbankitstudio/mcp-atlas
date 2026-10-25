@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
   confirmRegistry,
   findListing,
+  logSafe,
   main,
   report,
   ATTEMPTS,
@@ -142,10 +143,10 @@ test("the LAST attempt decides: reachable-and-unlisted after an outage FAILS", a
   assert.equal(r.outcome, "not-listed");
 });
 
-test("a cursor that repeats stops the walk instead of looping", async () => {
+test("a cursor that repeats stops the walk instead of looping, and only its length is reported", async () => {
   const r = await findListing({ name: NAME, version: "0.3.11", fetchImpl: () => Promise.resolve(page([entry(NAME, "0.3.10")], "same")) });
   assert.equal(r.kind, "bad-response");
-  assert.match(r.detail, /repeated cursor/);
+  assert.equal(r.detail, "the listing repeated a cursor (4 characters)");
 });
 
 test("main maps the outcomes to exit codes and annotations", async () => {
@@ -153,30 +154,73 @@ test("main maps the outcomes to exit codes and annotations", async () => {
   assert.deepEqual(report({ outcome: "listed", message: "m" }), { code: 0, line: "m" });
 });
 
-test("a registry cursor carrying a line break cannot start a workflow command in the log", async () => {
-  const hostile = "x\n::error::forged\r::warning::forged" + String.fromCharCode(0x2028) + "::notice::forged";
+// The runner reads `::cmd` at the start of a line (after leading whitespace)
+// and the legacy `##[cmd]` anywhere in one (actions/runner ActionCommand.cs).
+const LS = String.fromCharCode(0x2028);
+const NEL = String.fromCharCode(0x85);
+const HOSTILE = ["::error::x", "##[warning]x", "a\n::error::x", "##[add-mask]x"];
+
+/** Every physical line, with the script's own leading annotation prefix removed once. */
+function physicalLines(lines) {
+  return lines
+    .join("\n")
+    .split(new RegExp(`\\r\\n|\\r|\\n|${LS}|${String.fromCharCode(0x2029)}|${NEL}`))
+    .map((l) => l.replace(/^::(error|warning)::/, ""));
+}
+
+test("logSafe leaves no line break, no '::' and no '##[' anywhere, and shows each escape", () => {
+  for (const text of [...HOSTILE, `x\r::warning::y`, `x${LS}::notice::y`, `x${NEL}::notice::y`, "###[x", ":::x"]) {
+    const safe = logSafe(text);
+    assert.doesNotMatch(safe, /[\r\n]/, JSON.stringify(text));
+    assert.ok(!safe.includes(LS) && !safe.includes(NEL), JSON.stringify(text));
+    assert.ok(!safe.includes("::"), `${JSON.stringify(text)} -> ${safe}`);
+    assert.ok(!safe.includes("##["), `${JSON.stringify(text)} -> ${safe}`);
+  }
+  assert.equal(logSafe("::error::x"), "\\u003a:error\\u003a:x");
+  assert.equal(logSafe("##[add-mask]x"), "\\u0023#[add-mask]x");
+  assert.equal(logSafe("a\n::error::x"), "a\\u000a\\u003a:error\\u003a:x");
+});
+
+for (const cursor of HOSTILE) {
+  test(`a hostile registry cursor ${JSON.stringify(cursor)} forms no workflow command in the log`, async () => {
+    const lines = [];
+    const r = await confirmRegistry({
+      name: NAME,
+      version: "0.3.11",
+      // The same cursor twice, so the walk stops on a repeated cursor.
+      fetchImpl: () => Promise.resolve(page([entry(NAME, "0.3.10")], cursor)),
+      sleep: async () => {},
+      now: () => 0,
+      log: (line) => lines.push(line),
+    });
+    assert.equal(r.outcome, "bad-response");
+    lines.push(report(r).line);
+    assert.match(report(r).line, /^::error::the MCP Registry answered but did not confirm/);
+    for (const line of physicalLines(lines)) {
+      assert.ok(!line.includes("::") && !line.includes("##["), `no command in: ${line}`);
+    }
+    assert.ok(report(r).line.includes(`a cursor (${cursor.length} characters)`), "the cursor's length, not the cursor");
+  });
+}
+
+test("a hostile fetch error message forms no workflow command in the log either", async () => {
   const lines = [];
+  const message = "##[add-mask]secret ::error::forged\n::warning::forged";
   const r = await confirmRegistry({
     name: NAME,
     version: "0.3.11",
-    // The same hostile cursor twice, so the walk stops on a repeated cursor
-    // and the cursor lands in both the attempt log and the final message.
-    fetchImpl: () => Promise.resolve(page([entry(NAME, "0.3.10")], hostile)),
+    fetchImpl: () => Promise.reject(new Error(message)),
     sleep: async () => {},
     now: () => 0,
     log: (line) => lines.push(line),
   });
-  assert.equal(r.outcome, "bad-response");
+  assert.equal(r.outcome, "unreachable");
   lines.push(report(r).line);
-  const output = lines.join("\n").split(/\r\n|\r|\n|\u2028|\u2029/);
-  const commands = output.filter((l) => l.trimStart().startsWith("::"));
-  assert.deepEqual(
-    commands,
-    [report(r).line],
-    "the only line that starts with :: is the script's own ::error:: line",
-  );
-  assert.match(report(r).line, /^::error::the MCP Registry answered but did not confirm/);
-  assert.ok(report(r).line.includes("x\\u000a::error::forged"), "the line break is shown escaped");
+  assert.match(report(r).line, /^::warning::could not reach the MCP Registry/);
+  for (const line of physicalLines(lines)) {
+    assert.ok(!line.includes("::") && !line.includes("##["), `no command in: ${line}`);
+  }
+  assert.ok(report(r).line.includes("\\u0023#[add-mask]secret"), "the message is shown, escaped");
 });
 
 test("publish.yml's confirm job runs this script with the server name and version, and holds no publish identity", () => {
@@ -186,6 +230,11 @@ test("publish.yml's confirm job runs this script with the server name and versio
   const job = wf.slice(start);
   const code = job.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   assert.match(code, /\n    needs: publish\n/);
+  assert.match(
+    code,
+    /\n    if: \$\{\{ !cancelled\(\) && needs\.publish\.outputs\.mcpreg == 'true' \}\}\n/,
+    "the read-back runs after a later publish-job failure, and only once the registry publish reported done",
+  );
   assert.match(code, /\n    permissions:\n      contents: read\n    steps:/, "contents: read is its only permission");
   assert.doesNotMatch(code, /id-token|environment:/, "no OIDC identity and no environment");
   assert.match(code, /\n    timeout-minutes: \d+\n/);
@@ -197,5 +246,14 @@ test("publish.yml's confirm job runs this script with the server name and versio
   assert.ok(!publishJob.includes("- name: Confirm on the MCP Registry"), "the publish job no longer reads the entry back");
   const timeout = Number(publishJob.match(/\n    timeout-minutes: (\d+)\n/)?.[1]);
   assert.ok(timeout > 0 && timeout <= 27, `the publish job's timeout is back at 27 minutes or less (got ${timeout})`);
+  // The two outputs the confirm job reads, and the steps that set them, so a
+  // rename on either side cannot skip the read-back in silence.
+  assert.match(
+    publishJob,
+    /\n    outputs:\n      version: \$\{\{ steps\.bump\.outputs\.version \}\}\n      mcpreg: \$\{\{ steps\.mcpreg\.outputs\.published \}\}\n/,
+  );
+  assert.match(publishJob, /\n        id: bump\n/);
+  assert.match(publishJob, /echo "version=\$NEW" >> "\$GITHUB_OUTPUT"/);
+  assert.match(publishJob, /\n        id: mcpreg\n/);
+  assert.match(publishJob, /echo "published=true" >> "\$GITHUB_OUTPUT"\n              exit 0/);
 });
-

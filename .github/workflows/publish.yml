@@ -507,6 +507,12 @@ jobs:
   # the read-back's up to 14 minutes kept `id-token: write` mintable that much
   # longer. It runs only once the registry publish reported done.
   #
+  # `!cancelled()` replaces the default success() gate, so a failure in a
+  # publish-job step AFTER the registry publish (the Report step, say) still
+  # gets the entry read back. A dry run, or a failure before the registry
+  # publish, leaves `mcpreg` empty, so the job still skips; a cancelled run
+  # skips too.
+  #
   # Three outcomes: listed passes; a registry that answers without listing the
   # version FAILS; a registry that cannot be reached (timeout, refused,
   # 0 bytes) ends as a WARNING after a longer backoff, because "could not ask"
@@ -516,7 +522,7 @@ jobs:
   # and test/confirm-registry.test.mjs.
   confirm-registry:
     needs: publish
-    if: ${{ needs.publish.outputs.mcpreg == 'true' }}
+    if: ${{ !cancelled() && needs.publish.outputs.mcpreg == 'true' }}
     runs-on: ubuntu-latest
     # The script's deadline is 14 minutes, checked before each attempt, so a
     # slow last attempt can run past it; checkout and Node take ~1 minute.

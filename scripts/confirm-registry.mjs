@@ -49,17 +49,24 @@ export const DEADLINE_MS = 14 * 60_000;
 const UNAVAILABLE_STATUSES = new Set([429, 502, 503, 504]);
 
 /**
- * Every line this script logs carries text the registry controls (a cursor, an
- * error message), and the Actions runner reads any log line that starts with
- * `::` as a workflow command. So every line goes through here first: a control
- * character or a line separator becomes a visible \uXXXX escape, and the
- * registry's text can never start a line of its own.
+ * A logged line can carry text from outside this script (a fetch error's
+ * message), and the Actions runner reads two command forms out of a log: a
+ * line that starts with `::` (after leading whitespace), and the legacy
+ * `##[command]` ANYWHERE in a line (actions/runner, ActionCommand.cs, which
+ * looks for it with IndexOf("##[")). So every line goes through here first:
+ * a control character or a line separator becomes a visible \uXXXX escape,
+ * the first ':' of any "::" becomes :, and the first '#' of any "##["
+ * becomes #. No "::", "##[" or line break survives, so the text can form
+ * no command of either kind. The registry's cursor is not printed at all.
  */
 export function logSafe(text) {
-  return String(text).replace(
-    /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g,
-    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
+  return String(text)
+    .replace(
+      /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    )
+    .replace(/:(?=:)/g, "\\u003a")
+    .replace(/#(?=#\[)/g, "\\u0023");
 }
 
 /** One request. Returns the parsed page, or a classified failure. */
@@ -100,7 +107,10 @@ export async function findListing({ name, version, fetchImpl = fetch }) {
     if (hit) return { kind: "listed", pages: n };
     cursor = r.page.metadata?.nextCursor || null;
     if (!cursor) return { kind: "not-listed", pages: n };
-    if (seen.has(cursor)) return { kind: "bad-response", detail: `the listing repeated cursor ${cursor}`, pages: n };
+    // The cursor is the registry's own text, so only its length is reported.
+    if (seen.has(cursor)) {
+      return { kind: "bad-response", detail: `the listing repeated a cursor (${String(cursor).length} characters)`, pages: n };
+    }
     seen.add(cursor);
   }
   return { kind: "bad-response", detail: `the listing ran past ${MAX_PAGES} pages`, pages: MAX_PAGES };
