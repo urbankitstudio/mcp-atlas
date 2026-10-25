@@ -9,6 +9,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { atlas } from "@urbankitstudio/atlas";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 
@@ -590,6 +591,41 @@ async function run() {
     pgCurly.includes("FIPS: 24033") && !pgCurly.includes("not in the UrbanKit atlas"),
     "find_county with a curly apostrophe (Prince George’s) returns the record",
   );
+
+  // Step: the publisher's required statement. Atlas 0.6.41 gives a record a
+  // `credit` (Colorado's statewide layer, Greene MO's Springfield disclaimer),
+  // and every answer that serves the county's endpoints prints it in full. The
+  // expected text is read from the installed package, so a shortened or
+  // reworded credit fails. Kane IL names none, the CONTROL.
+  const credited = [
+    ["CO", "Jefferson", "colorado"],
+    ["MO", "Greene", "missouri"],
+  ];
+  let creditId = 100;
+  for (const [st, name, slug] of credited) {
+    const record = atlas.byStateSlug.get(slug)?.counties.find((c) => c.county === name);
+    assert(typeof record?.credit === "string" && record.credit.length > 0, `${name} ${st} carries a credit in the installed atlas`);
+    const expected = `Data credit: ${record?.credit}`;
+    const calls = [
+      ["find_county", { query: `${name} ${st}` }],
+      ["get_parcel_endpoint", { state: st, county: name }],
+      ["build_owner_query", { state: st, county: name, owner_name: "SMITH" }],
+    ];
+    for (const [tool, args] of calls) {
+      sendMessage(proc, creditId++, "tools/call", { name: tool, arguments: args });
+      const text = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+      assert(text.includes(expected), `${tool} prints ${name} ${st}'s data credit in full`);
+    }
+  }
+  for (const [tool, args] of [
+    ["find_county", { query: "Kane IL" }],
+    ["get_parcel_endpoint", { state: "IL", county: "Kane" }],
+    ["build_owner_query", { state: "IL", county: "Kane", owner_name: "SMITH" }],
+  ]) {
+    sendMessage(proc, creditId++, "tools/call", { name: tool, arguments: args });
+    const text = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(text.includes("TaxName") && !text.includes("Data credit:"), `CONTROL ${tool} prints no data credit for Kane IL`);
+  }
 
   // Cleanup
   proc.stdin.end();

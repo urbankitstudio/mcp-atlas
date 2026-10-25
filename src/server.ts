@@ -115,6 +115,17 @@ function scopeLine(owner: OwnerSearchPolicy): string | null {
     : null;
 }
 
+/**
+ * The statement the publisher's terms require wherever its data is shown (a
+ * credit line, or a disclaimer such as Springfield's for Greene MO), verbatim
+ * and never shortened, on every answer about a county record that carries one,
+ * with or without an endpoint. Empty when the record names none. The hosted
+ * MCP, the REST API and the `uks` CLI key on the record the same way.
+ */
+function creditLine(c: CountyRecord): string {
+  return c.credit ? `Data credit: ${c.credit}` : "";
+}
+
 function formatCountySummary(c: CountyRecord): string {
   if (!countyHasEndpoint(c)) {
     return [
@@ -122,6 +133,7 @@ function formatCountySummary(c: CountyRecord): string {
       `FIPS: ${c.countyFips ?? "n/a"}`,
       coverageText(c, recordRef(c)),
       c.notes ? `Notes: ${c.notes}` : "",
+      creditLine(c),
     ]
       .filter(Boolean)
       .join("\n");
@@ -152,6 +164,7 @@ function formatCountySummary(c: CountyRecord): string {
     `Endpoints (${c.endpoints.length}):`,
     epSummary,
     c.notes ? `Notes: ${c.notes}` : "",
+    creditLine(c),
   ]
     .filter(Boolean)
     .join("\n");
@@ -168,7 +181,7 @@ const server = new McpServer(
   { name: "mcp-atlas", version: PKG_VERSION },
   {
     instructions:
-      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL. get_city_datasets describes a covered city's code-violation, building-permit and zoning-case datasets and returns a ready query URL for a street; it holds no owner data.",
+      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL. get_city_datasets describes a covered city's code-violation, building-permit and zoning-case datasets and returns a ready query URL for a street; it holds no owner data. When an answer carries a 'Data credit:' line, the publisher requires that statement wherever its data is shown: show it verbatim with the county's results.",
   }
 );
 
@@ -464,6 +477,8 @@ server.registerTool(
       );
       if (i < countyRecord.endpoints.length - 1) lines.push("\n" + "-".repeat(40));
     });
+    const credit = creditLine(countyRecord);
+    if (credit) lines.push("", credit);
 
     return {
       content: [{ type: "text" as const, text: lines.join("\n") }],
@@ -586,6 +601,10 @@ server.registerTool(
         ].join("\n")
       );
     }
+
+    // The URLs fetch the publisher's rows, so its statement goes with them.
+    const credit = creditLine(countyRecord);
+    if (credit) results.push(credit);
 
     return {
       content: [{ type: "text" as const, text: results.join("\n\n" + "=".repeat(60) + "\n\n") }],
