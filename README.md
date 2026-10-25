@@ -153,7 +153,10 @@ layer index, searchable fields, owner field (or why no owner query is offered),
 the county's `Scope:` predicate when the layer is shared statewide or
 regionally, a generic sample `?where=…&f=json` query and the UrbanKit deep-link
 for one county. For a named owner, use
-`build_owner_query` rather than editing the sample query by hand.
+`build_owner_query` rather than editing the sample query by hand. On a layer
+that flags confidential owners it prints the `Confidential owners:` exclusion
+to AND into any query of your own, and leaves out the atlas's sample query,
+which predates the flag.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -173,6 +176,17 @@ returns a URL you can fetch or open. On a shared statewide or regional layer
 (Connecticut's regional composites, for example) the county's scope predicate
 is ANDed in front, as
 `(scope) AND UPPER(field) LIKE …`, so only that county's rows come back.
+
+Some layers publish an owner whose record must not be shown, and flag it in a
+column beside the owner: Texas Tax Code §25.025 lets peace officers, judges,
+family-violence victims and others keep their home address confidential, and
+Harris and Collin mark those accounts (Ector carries a forward guess). On such
+a layer the query excludes flagged rows, as
+`(…) AND CAST(flag AS VARCHAR(255)) NOT LIKE '%Y%'` for a one-character value
+(Harris packs one flag per ownership slot, `YNNNNNNNNN`), or `<> 'VALUE'` for
+a longer one. The cast lets one form serve a text or an integer column. A row with no flag recorded (NULL) counts as flagged and drops
+out. The flag column comes back with each row; never show or pass on a row
+whose flag is set.
 
 An endpoint is refused, with the reason, rather than handed a query that finds
 nothing or hangs:

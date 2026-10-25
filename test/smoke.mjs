@@ -627,6 +627,48 @@ async function run() {
     assert(text.includes("TaxName") && !text.includes("Data credit:"), `CONTROL ${tool} prints no data credit for Kane IL`);
   }
 
+  // Step: confidential owners. Atlas 0.6.43 names the column in which Harris and
+  // Collin flag an owner whose record must not be shown (Texas Tax Code
+  // §25.025). The owner query the server hands out must exclude those rows and
+  // request the column, and get_parcel_endpoint must not print the atlas's own
+  // sample owner query, which predates the flag. The expected clause is spelled
+  // out here, not derived, so a changed clause fails. Kane IL is the CONTROL.
+  const flaggedCounties = [
+    ["Harris", "texas", "CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'", "confidential_flag"],
+    ["Collin", "texas", "CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%T%'", "GIS_DBO_AD_Entity_confidential_"],
+  ];
+  let confId = 200;
+  for (const [name, slug, exclusion, field] of flaggedCounties) {
+    const record = atlas.byStateSlug.get(slug)?.counties.find((c) => c.county === name);
+    sendMessage(proc, confId++, "tools/call", { name: "build_owner_query", arguments: { state: "TX", county: name, owner_name: "SMITH" } });
+    const ownerText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    const whereLine = ownerText.split("\n").find((l) => l.startsWith("WHERE clause: ")) ?? "";
+    assert(whereLine.endsWith(`) AND ${exclusion}`), `build_owner_query excludes ${name} TX's confidential owners in the WHERE clause`);
+    const url = ownerText.split("\n").find((l) => l.startsWith("https://")) ?? "";
+    const params = url ? new URL(url).searchParams : new URLSearchParams();
+    assert(params.get("where") === whereLine.slice("WHERE clause: ".length), `${name} TX's query URL carries the same WHERE clause`);
+    assert((params.get("outFields") ?? "").split(",").includes(field), `${name} TX's query URL requests ${field}`);
+
+    sendMessage(proc, confId++, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "TX", county: name } });
+    const epText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(epText.includes(`Confidential owners: ${exclusion}`), `get_parcel_endpoint prints ${name} TX's exclusion`);
+    const atlasSample = record?.endpoints[0]?.sampleQuery ?? "";
+    assert(atlasSample.length > 0 && !epText.includes(atlasSample), `get_parcel_endpoint withholds ${name} TX's unfiltered atlas sample query`);
+
+    sendMessage(proc, confId++, "tools/call", { name: "find_county", arguments: { query: `${name} TX` } });
+    const findText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(findText.includes(`Confidential owners: ${exclusion}`), `find_county prints ${name} TX's exclusion`);
+  }
+  for (const [tool, args] of [
+    ["find_county", { query: "Kane IL" }],
+    ["get_parcel_endpoint", { state: "IL", county: "Kane" }],
+    ["build_owner_query", { state: "IL", county: "Kane", owner_name: "SMITH" }],
+  ]) {
+    sendMessage(proc, confId++, "tools/call", { name: tool, arguments: args });
+    const text = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+    assert(text.includes("TaxName") && !/Confidential|CAST\(/.test(text), `CONTROL ${tool} adds no confidential exclusion for Kane IL`);
+  }
+
   // Cleanup
   proc.stdin.end();
   proc.kill();

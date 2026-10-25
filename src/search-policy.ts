@@ -30,19 +30,25 @@
  * carries one. A shared statewide or regional layer holds every county's rows
  * (FDOR `CO_NO=23` is Miami-Dade), so an unscoped query returns the whole
  * state. ownerWhereClause ANDs the scope in front of every owner match.
+ *
+ * Likewise `confidential` is returned whenever the endpoint carries the
+ * atlas's `confidentialFlag` (0.6.43): the county's own column marking an
+ * owner whose record must not be shown (Texas Tax Code §25.025; Harris,
+ * Collin and Ector). ownerWhereClause ANDs its exclusion after the owner
+ * match, and buildArcgisOwnerQuery requests the column.
  */
 
 import { isReviewedUnservable, offersPagination, reviewedCapability } from "@urbankitstudio/atlas";
-import type { CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
+import type { ConfidentialFlag, CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
 
 /**
  * The endpoint fields this policy reads, as @urbankitstudio/atlas declares them
  * (`scopeWhere` and `attributeSearch` since 0.6.11; before that this file
- * carried a local copy of the two).
+ * carried a local copy of the two; `confidentialFlag` since 0.6.43).
  */
 export type EndpointSearchPolicyFields = Pick<
   EndpointRecord,
-  "searchFields" | "scopeWhere" | "attributeSearch"
+  "searchFields" | "scopeWhere" | "attributeSearch" | "confidentialFlag"
 >;
 
 type CountyPolicyFields = Pick<CountyRecord, "capabilityOverrides">;
@@ -62,6 +68,46 @@ export interface OwnerSearchPolicy {
   reason: string | null;
   /** SQL predicate scoping a shared layer to this county, or null. */
   scopeWhere: string | null;
+  /** The layer's confidential-owner column and the predicate that keeps its flagged rows out, or null. */
+  confidential: ConfidentialExclusion | null;
+}
+
+export interface ConfidentialExclusion {
+  /** The flag column, requested with the owner so a reader can drop a flagged row too. */
+  field: string;
+  /** ANDed into every owner query. */
+  where: string;
+}
+
+/**
+ * The exclusion for a layer's confidential-owner flag, in the terms the atlas
+ * gives (README "Some layers flag an owner's record confidential"): a
+ * ONE-character value V is a flag when the cell CONTAINS it, so
+ * `NOT LIKE '%V%'` (Harris packs one Y/N per ownership slot, "YNNNNNNNNN",
+ * which an equality test would keep); a longer value is `<> 'V'`.
+ *
+ * The cell is CAST to text first. Ector's conf_flg is a small integer, and its
+ * server answers `conf_flg NOT LIKE '%1%'` (and `<> '1'`) with HTTP 400, which
+ * would break every Ector owner query; the cast form answers on all three
+ * layers with the same counts as the bare form (measured 2026-10-25). The atlas
+ * already reads the cell as text.
+ *
+ * NULL is FLAGGED, as the atlas requires of a row that lacks the column: a NULL
+ * cell makes either comparison UNKNOWN, so the row drops out. Harris has 5,235
+ * NULL cells and Collin 15,003, and both fall outside the clause live. Never
+ * COALESCE the cell to '' here: that would serve them.
+ */
+export function confidentialExclusion(flag: ConfidentialFlag | undefined): ConfidentialExclusion | null {
+  if (!flag || flag.values.length === 0) return null;
+  const cell = `CAST(${flag.field} AS VARCHAR(255))`;
+  const where = flag.values
+    .map((v) =>
+      v.length === 1
+        ? `${cell} NOT LIKE '%${escapeSqlLiteral(v)}%'`
+        : `${cell} <> '${escapeSqlLiteral(v)}'`,
+    )
+    .join(" AND ");
+  return { field: flag.field, where };
 }
 
 // THE OWNER-COLUMN TEST, copied VERBATIM from the UKS canonical classifier:
@@ -90,11 +136,13 @@ export function ownerSearchPolicy(
   endpoint: EndpointSearchPolicyFields,
 ): OwnerSearchPolicy {
   const scopeWhere = endpoint.scopeWhere?.trim() || null;
+  const confidential = confidentialExclusion(endpoint.confidentialFlag);
   const refuse = (kind: OwnerSearchKind, reason: string | null): OwnerSearchPolicy => ({
     kind,
     field: null,
     reason,
     scopeWhere,
+    confidential,
   });
 
   if (isReviewedUnservable(county, "owner_name")) {
@@ -109,7 +157,7 @@ export function ownerSearchPolicy(
   }
   const named = endpoint.searchFields.filter(isOwnerNameColumn);
   const usable = named.find((sf) => sf.searchable !== false);
-  if (usable) return { kind: "offered", field: usable.name, reason: null, scopeWhere };
+  if (usable) return { kind: "offered", field: usable.name, reason: null, scopeWhere, confidential };
   if (named.length > 0) return refuse("owner_unsearchable", OWNER_UNSEARCHABLE_REASON);
   return refuse("no_owner_column", null);
 }
@@ -130,18 +178,23 @@ export function escapeSqlLiteral(value: string): string {
 }
 
 /**
- * The raw SQL owner match, scoped when the layer is shared. Both the query URL
- * (which encodes this string) and the clause printed for a human come from
- * here, so the two can never disagree about the scope or the escaping. The
- * scope is curated registry text, not user input, so it is not escaped.
+ * The raw SQL owner match, scoped when the layer is shared and with the
+ * county's confidential owners excluded when the layer flags them. Both the
+ * query URL (which encodes this string) and the clause printed for a human
+ * come from here, so the two can never disagree about the scope, the exclusion
+ * or the escaping. The scope is curated registry text, not user input, so it
+ * is not escaped. A layer with no confidential flag gets exactly the clause it
+ * got before the flag existed.
  */
 export function ownerWhereClause(
   field: string,
   scopeWhere: string | null,
   ownerName: string,
+  confidential: ConfidentialExclusion | null,
 ): string {
   const match = `UPPER(${field}) LIKE UPPER('%${escapeSqlLiteral(ownerName)}%')`;
-  return scopeWhere ? `(${scopeWhere}) AND ${match}` : match;
+  const scoped = scopeWhere ? `(${scopeWhere}) AND ${match}` : match;
+  return confidential ? `(${scoped}) AND ${confidential.where}` : scoped;
 }
 
 /**
@@ -183,11 +236,16 @@ export function buildArcgisOwnerQuery(
   ownerQuery: string,
 ): string {
   if (!owner.field) return "";
-  const where = encodeURIComponent(ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery));
-  const liveFields = endpoint.searchFields
-    .filter((sf) => sf.searchable)
-    .map((sf) => sf.name)
-    .join(",");
+  const where = encodeURIComponent(
+    ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery, owner.confidential),
+  );
+  const fields = endpoint.searchFields.filter((sf) => sf.searchable).map((sf) => sf.name);
+  // The flag column comes back with the owner, as the atlas asks, so whoever
+  // reads the rows can drop a flagged one as well.
+  if (owner.confidential && !fields.includes(owner.confidential.field)) {
+    fields.push(owner.confidential.field);
+  }
+  const liveFields = fields.join(",");
   return (
     `${endpoint.url}/query` +
     `?where=${where}` +

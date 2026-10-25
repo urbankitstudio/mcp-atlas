@@ -116,6 +116,16 @@ function scopeLine(owner: OwnerSearchPolicy): string | null {
 }
 
 /**
+ * A layer's confidential-owner flag (Texas Tax Code §25.025), printed so a
+ * caller ANDs the exclusion into any query of their own, as with the scope.
+ */
+function confidentialLine(owner: OwnerSearchPolicy): string | null {
+  return owner.confidential
+    ? `Confidential owners: ${owner.confidential.where} (the county flags them in ${owner.confidential.field}; AND this into every query, and never show or pass on a flagged row)`
+    : null;
+}
+
+/**
  * The statement the publisher's terms require wherever its data is shown (a
  * credit line, or a disclaimer such as Springfield's for Greene MO), verbatim
  * and never shortened, on every answer about a county record that carries one,
@@ -147,11 +157,13 @@ function formatCountySummary(c: CountyRecord): string {
           .map((sf) => `${sf.name} (${sf.label})`)
           .join(", ");
         const scope = scopeLine(owner);
+        const confidential = confidentialLine(owner);
         return [
           `  URL: ${ep.url}`,
           `  Service: ${ep.serviceType}/layer ${ep.layerIndex}`,
           `  Status: ${ep.status} (verified ${ep.lastVerified})`,
           ...(scope ? [`  ${scope}`] : []),
+          ...(confidential ? [`  ${confidential}`] : []),
           `  Searchable fields: ${searchable || "none"}`,
           `  ${ownerLine(owner)}`,
           `  License: ${ep.license}`,
@@ -380,7 +392,7 @@ server.registerTool(
   {
     title: "Get one county's parcel endpoint record",
     description:
-      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
+      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), the exclusion for owners the county flags confidential when the layer carries such a flag (AND it in too), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
     inputSchema: {
       state: z
         .string()
@@ -444,6 +456,7 @@ server.registerTool(
         ? buildArcgisOwnerQuery(ep, owner, "SMITH")
         : null;
       const scope = scopeLine(owner);
+      const confidential = confidentialLine(owner);
 
       lines.push(`Endpoint ${i + 1}:`);
       lines.push(`  URL:         ${ep.url}`);
@@ -454,6 +467,7 @@ server.registerTool(
       lines.push(`  CORS:        ${ep.corsEnabled === null ? "unknown" : ep.corsEnabled}`);
       lines.push(`  License:     ${ep.license}${ep.licenseUrl ? ` (${ep.licenseUrl})` : ""}`);
       if (scope) lines.push(`  ${scope}`);
+      if (confidential) lines.push(`  ${confidential}`);
       lines.push("");
       lines.push("  Searchable fields:");
       ep.searchFields
@@ -461,7 +475,10 @@ server.registerTool(
         .forEach((sf) => lines.push(`    ${sf.name.padEnd(20)} – ${sf.label}`));
       lines.push("");
       lines.push(`  ${ownerLine(owner)}`);
-      if (ep.sampleQuery) {
+      // The atlas's sample is an owner query written before the flag existed,
+      // so on a flagged layer it would serve confidential owners. The sample
+      // owner query below carries the exclusion.
+      if (ep.sampleQuery && !owner.confidential) {
         lines.push("");
         lines.push("  Sample query (from atlas):");
         lines.push(`    ${ep.sampleQuery}`);
@@ -495,7 +512,7 @@ server.registerTool(
   {
     title: "Build an owner-name search URL for one county",
     description:
-      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
+      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. Where the layer carries the county's own confidential-owner flag (Texas Tax Code §25.025), flagged rows are excluded in the query, a row with no flag recorded counts as flagged, and the flag column is returned with each row. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
     inputSchema: {
       state: z
         .string()
@@ -580,14 +597,16 @@ server.registerTool(
       }
 
       const queryUrl = buildArcgisOwnerQuery(ep, owner, owner_name);
-      const where = ownerWhereClause(ownerField, owner.scopeWhere, owner_name);
+      const where = ownerWhereClause(ownerField, owner.scopeWhere, owner_name, owner.confidential);
       const scope = scopeLine(owner);
+      const confidential = confidentialLine(owner);
 
       results.push(
         [
           `County:      ${countyRecord.county}, ${countyRecord.stateName}`,
           `Owner field: ${ownerField}`,
           ...(scope ? [scope] : []),
+          ...(confidential ? [confidential] : []),
           `WHERE clause: ${where}`,
           ``,
           `Query URL:`,
@@ -595,6 +614,11 @@ server.registerTool(
           ``,
           `Notes:`,
           `  - ${ownerQueryRowsNote(ep)}`,
+          ...(owner.confidential
+            ? [
+                `  - Owners the county flags confidential are excluded, and a row with no flag recorded (NULL) counts as flagged. ${owner.confidential.field} comes back with each row: if one is flagged, do not show or pass it on`,
+              ]
+            : []),
           `  - Partial name match (e.g. "SMITH" matches "SMITH JOHN" and "BLACKSMITH LLC")`,
           `  - Case-insensitive`,
           `  - Add &token=<your-token> if the service requires auth (this county is public)`,
