@@ -649,15 +649,27 @@ async function run() {
     assert(params.get("where") === whereLine.slice("WHERE clause: ".length), `${name} TX's query URL carries the same WHERE clause`);
     assert((params.get("outFields") ?? "").split(",").includes(field), `${name} TX's query URL requests ${field}`);
 
+    // The whole line, pinned: the label, the clause and the instruction.
+    const flagLine = `Confidential flag: ${exclusion} (the county flags confidential owners in ${field}; AND this into every query, and never show or pass on a flagged row)`;
+    assert(ownerText.split("\n").includes(flagLine), `build_owner_query prints ${name} TX's Confidential flag line`);
+
     sendMessage(proc, confId++, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "TX", county: name } });
     const epText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-    assert(epText.includes(`Confidential owners: ${exclusion}`), `get_parcel_endpoint prints ${name} TX's exclusion`);
+    assert(epText.split("\n").includes(`  ${flagLine}`), `get_parcel_endpoint prints ${name} TX's Confidential flag line`);
     const atlasSample = record?.endpoints[0]?.sampleQuery ?? "";
     assert(atlasSample.length > 0 && !epText.includes(atlasSample), `get_parcel_endpoint withholds ${name} TX's unfiltered atlas sample query`);
+    // The sample that replaces it is the build_owner_query helper's own.
+    const epLines = epText.split("\n");
+    const sample = (epLines[epLines.findIndex((l) => l.startsWith("  Sample owner query")) + 1] ?? "").trim();
+    const sampleParams = sample.startsWith("https://") ? new URL(sample).searchParams : new URLSearchParams();
+    assert(
+      (sampleParams.get("where") ?? "").endsWith(`) AND ${exclusion}`) && (sampleParams.get("outFields") ?? "").split(",").includes(field),
+      `get_parcel_endpoint's sample owner query for ${name} TX carries the exclusion and requests ${field}`,
+    );
 
     sendMessage(proc, confId++, "tools/call", { name: "find_county", arguments: { query: `${name} TX` } });
     const findText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-    assert(findText.includes(`Confidential owners: ${exclusion}`), `find_county prints ${name} TX's exclusion`);
+    assert(findText.split("\n").includes(`  ${flagLine}`), `find_county prints ${name} TX's Confidential flag line`);
   }
   for (const [tool, args] of [
     ["find_county", { query: "Kane IL" }],

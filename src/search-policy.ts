@@ -92,10 +92,19 @@ export interface ConfidentialExclusion {
  * layers with the same counts as the bare form (measured 2026-10-25). The atlas
  * already reads the cell as text.
  *
- * NULL is FLAGGED, as the atlas requires of a row that lacks the column: a NULL
- * cell makes either comparison UNKNOWN, so the row drops out. Harris has 5,235
- * NULL cells and Collin 15,003, and both fall outside the clause live. Never
- * COALESCE the cell to '' here: that would serve them.
+ * The cell is NOT trimmed: TRIM(...) answers HTTP 400 on all three layers. So a
+ * longer value's `<>` compares the cell untrimmed, where the atlas trims first.
+ * No current flag has a value longer than one character, so no verdict changes
+ * today; a contains test needs no trim.
+ *
+ * NULL is FLAGGED (fail-closed), as the atlas README requires of a row that
+ * lacks the column: a NULL cell makes either comparison UNKNOWN, so the row
+ * drops out. Harris has 5,235 NULL cells and Collin 15,003, and both fall
+ * outside the clause live. Never COALESCE the cell to '' here: that would serve
+ * them. The hosted UKS API differs on exactly these rows: it filters in code
+ * and SHOWS a NULL-flag row (src/lib/withhold-core.ts:165-169, where
+ * cellIsFlagged returns false on NULL). That difference is the UKS side's to
+ * settle; this server stays fail-closed.
  */
 export function confidentialExclusion(flag: ConfidentialFlag | undefined): ConfidentialExclusion | null {
   if (!flag || flag.values.length === 0) return null;

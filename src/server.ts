@@ -121,7 +121,7 @@ function scopeLine(owner: OwnerSearchPolicy): string | null {
  */
 function confidentialLine(owner: OwnerSearchPolicy): string | null {
   return owner.confidential
-    ? `Confidential owners: ${owner.confidential.where} (the county flags them in ${owner.confidential.field}; AND this into every query, and never show or pass on a flagged row)`
+    ? `Confidential flag: ${owner.confidential.where} (the county flags confidential owners in ${owner.confidential.field}; AND this into every query, and never show or pass on a flagged row)`
     : null;
 }
 

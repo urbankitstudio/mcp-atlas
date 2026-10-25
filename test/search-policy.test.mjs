@@ -225,8 +225,38 @@ test("Collin TX: a one-character 'T' is a contains test too", () => {
 
 test("Ector TX: the small-integer conf_flg is cast to text, which its server accepts", () => {
   const ector = county("texas", "tx-ector");
+  assert.deepEqual(ector.endpoints[0].confidentialFlag, { field: "conf_flg", values: ["1"] }, "fixture: the installed atlas's marker");
   const p = ownerSearchPolicy(ector, ector.endpoints[0]);
   assert.equal(p.confidential.where, "CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'");
+  assert.equal(
+    ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
+    "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'",
+  );
+});
+
+// The URL-encoded where, pinned as the bytes the URL carries, so a change in
+// the encoding (not only in the clause) fails too.
+test("the three flagged owner query URLs carry these exact encoded where clauses and flag columns", () => {
+  const expected = {
+    "tx-harris": [
+      "(UPPER(owner_name_1)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(confidential_flag%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%25Y%25'",
+      "HCAD_NUM,acct_num,owner_name_1,owner_name_2,site_str_num,site_str_name,site_city,site_zip,mail_addr_1,confidential_flag",
+    ],
+    "tx-collin": [
+      "(UPPER(GIS_DBO_AD_Entity_file_as_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(GIS_DBO_AD_Entity_confidential_%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%25T%25'",
+      "GIS_DBO_AD_Entity_file_as_name,GIS_DBO_AD_Entity_situs_display,GIS_DBO_Parcel_PROP_ID,GIS_DBO_Parcel_GEO_ID,GIS_DBO_AD_Entity_confidential_",
+    ],
+    "tx-ector": [
+      "(UPPER(owner_name)%20LIKE%20UPPER('%25SMITH%25'))%20AND%20CAST(conf_flg%20AS%20VARCHAR(255))%20NOT%20LIKE%20'%251%25'",
+      "PIN,strap,owner_name,owner_addr,conf_flg",
+    ],
+  };
+  for (const [id, [where, outFields]] of Object.entries(expected)) {
+    const c = county("texas", id);
+    const raw = buildArcgisOwnerQuery(c.endpoints[0], ownerSearchPolicy(c, c.endpoints[0]), "SMITH");
+    assert.equal(raw.match(/[?&]where=([^&]*)/)?.[1], where, `${id} encoded where`);
+    assert.equal(raw.match(/[?&]outFields=([^&]*)/)?.[1], outFields, `${id} outFields`);
+  }
 });
 
 test("CONTROL Kane IL carries no flag, and its owner query is byte-identical to 0.3.10's", () => {

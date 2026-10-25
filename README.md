@@ -154,7 +154,7 @@ the county's `Scope:` predicate when the layer is shared statewide or
 regionally, a generic sample `?where=…&f=json` query and the UrbanKit deep-link
 for one county. For a named owner, use
 `build_owner_query` rather than editing the sample query by hand. On a layer
-that flags confidential owners it prints the `Confidential owners:` exclusion
+that flags confidential owners it prints the `Confidential flag:` exclusion
 to AND into any query of your own, and leaves out the atlas's sample query,
 which predates the flag.
 
