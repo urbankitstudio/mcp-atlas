@@ -627,15 +627,18 @@ async function run() {
     assert(text.includes("TaxName") && !text.includes("Data credit:"), `CONTROL ${tool} prints no data credit for Kane IL`);
   }
 
-  // Step: confidential owners. Atlas 0.6.43 names the column in which Harris and
-  // Collin flag an owner whose record must not be shown (Texas Tax Code
-  // §25.025). The owner query the server hands out must exclude those rows and
+  // Step: confidential owners. Atlas 0.6.43 names the column in which Harris,
+  // Collin and Ector flag an owner whose record must not be shown (Texas Tax
+  // Code §25.025). The owner query the server hands out must exclude those rows and
   // request the column, and get_parcel_endpoint must not print the atlas's own
   // sample owner query, which predates the flag. The expected clause is spelled
   // out here, not derived, so a changed clause fails. Kane IL is the CONTROL.
   const flaggedCounties = [
     ["Harris", "texas", "CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%Y%'", "confidential_flag"],
     ["Collin", "texas", "CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%T%'", "GIS_DBO_AD_Entity_confidential_"],
+    // Ector is where the CAST matters: conf_flg is a small integer, and its
+    // server answers the uncast `conf_flg NOT LIKE '%1%'` with HTTP 400.
+    ["Ector", "texas", "CAST(conf_flg AS VARCHAR(255)) NOT LIKE '%1%'", "conf_flg"],
   ];
   let confId = 200;
   for (const [name, slug, exclusion, field] of flaggedCounties) {
