@@ -104,9 +104,12 @@ export type ConfidentialPolicy = ConfidentialExclusion | IncompleteConfidentialF
 // nothing else may pass. A dotted (joined-layer) name is refused too, which
 // fails closed.
 const FLAG_FIELD_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// A value is a SQL literal and is printed in the answer, so a control
-// character or line separator makes the flag incomplete rather than printed.
-const FLAG_VALUE_BAD_CHAR_RE = /[\u0000-\u001F\u007F\u2028\u2029]/;
+// A value is a SQL literal, printed in the answer, and uppercased on both sides
+// of the comparison, so only ASCII letters and digits pass: JavaScript and the
+// database agree on their uppercase, and none of them is a LIKE wildcard, a
+// quote, whitespace or a control character. "\u00df" (which JavaScript uppercases
+// to "SS") and the dotless "\u0131" make the flag incomplete.
+const FLAG_VALUE_RE = /^[A-Za-z0-9]+$/;
 
 function flagProblem(flag: unknown): { field: string | null; problem: string | null } {
   if (typeof flag !== "object" || flag === null) {
@@ -118,25 +121,34 @@ function flagProblem(flag: unknown): { field: string | null; problem: string | n
   if (!Array.isArray(values) || values.length === 0) {
     return { field: goodField, problem: "the flag lists no values" };
   }
-  const bad = values.find(
-    (v) => typeof v !== "string" || v.trim().length === 0 || FLAG_VALUE_BAD_CHAR_RE.test(v),
-  );
-  if (bad !== undefined) return { field: goodField, problem: "a flag value is not a non-empty string" };
+  // An index loop, on the RAW value: find(), some() and map() skip or
+  // misreport a hole ([, "Y"]) or an undefined element, and a test on the
+  // uppercased value would let "\u00df" through as "SS".
+  for (let i = 0; i < values.length; i++) {
+    const v: unknown = values[i];
+    if (typeof v !== "string" || !FLAG_VALUE_RE.test(v)) {
+      return { field: goodField, problem: "a flag value is not ASCII letters and digits only" };
+    }
+  }
   return { field: goodField, problem: null };
 }
 
 /**
- * The exclusion for a layer's confidential-owner flag, in the terms the atlas
- * gives (README "Some layers flag an owner's record confidential"): a
- * ONE-character value V is a flag when the cell CONTAINS it, so
- * `NOT LIKE '%V%'` (Harris packs one Y/N per ownership slot, "YNNNNNNNNN",
- * which an equality test would keep); a longer value is `<> 'V'`.
+ * The exclusion for a layer's confidential-owner flag. Every value V is a
+ * CONTAINS test, `NOT LIKE '%V%'`: Harris packs one Y/N per ownership slot,
+ * "YNNNNNNNNN", which an equality test would keep. The atlas README makes a
+ * value longer than one character an equality test after trimming; this
+ * server makes it a contains test too, which DELIBERATELY EXCLUDES MORE than
+ * the atlas's rule (" SEALED" and "UNSEALED" both drop out for "SEALED").
+ * That is the fail-closed direction, and it needs no TRIM, which the three
+ * layers refuse (below).
  *
  * FAIL CLOSED ON MALFORMED METADATA. Only an absent flag (undefined) means
  * "unflagged". A flag that is present but whose field is not a bare
- * identifier, whose values are missing or empty, or whose values are not
- * non-empty strings comes back `incomplete`: ownerSearchPolicy then offers no
- * owner query, and get_parcel_endpoint withholds the atlas's sample query.
+ * identifier, whose values are missing or empty, or whose values are not all
+ * ASCII letters and digits comes back `incomplete`: ownerSearchPolicy then
+ * offers no owner query, and get_parcel_endpoint withholds the atlas's sample
+ * query.
  *
  * The cell is CAST to text first. Ector's conf_flg is a small integer, and its
  * server answers `conf_flg NOT LIKE '%1%'` (and `<> '1'`) with an ArcGIS error
@@ -153,13 +165,10 @@ function flagProblem(flag: unknown): { field: string | null; problem: string | n
  * 435,783); Ector answers the UPPER form with 77,042.
  *
  * The cell is NOT trimmed: TRIM(...) gets the same ArcGIS error on all three
- * layers. So a
- * longer value's `<>` compares the cell untrimmed, where the atlas trims first.
- * No current flag has a value longer than one character, so no verdict changes
- * today; a contains test needs no trim.
+ * layers. A contains test needs no trim, which is why every value uses it.
  *
  * NULL is FLAGGED (fail-closed), as the atlas README requires of a row that
- * lacks the column: a NULL cell makes either comparison UNKNOWN, so the row
+ * lacks the column: a NULL cell makes the comparison UNKNOWN, so the row
  * drops out. Harris has 5,235 NULL cells and Collin 15,003, and both fall
  * outside the clause live. Never COALESCE the cell to '' here: that would serve
  * them. This server stays fail-closed on a NULL cell.
@@ -172,10 +181,7 @@ export function confidentialExclusion(flag: ConfidentialFlag | undefined): Confi
   }
   const cell = `UPPER(CAST(${field} AS VARCHAR(255)))`;
   const where = flag.values
-    .map((v) => {
-      const literal = escapeSqlLiteral(v.toUpperCase());
-      return v.length === 1 ? `${cell} NOT LIKE '%${literal}%'` : `${cell} <> '${literal}'`;
-    })
+    .map((v) => `${cell} NOT LIKE '%${escapeSqlLiteral(v.toUpperCase())}%'`)
     .join(" AND ");
   return { kind: "exclude", field, where };
 }
@@ -195,7 +201,7 @@ export function confidentialLine(owner: Pick<OwnerSearchPolicy, "confidential">)
   const c = owner.confidential;
   if (!c) return null;
   if (c.kind === "incomplete") {
-    return `Confidential flag: present but incomplete (${c.problem}); no exclusion can be built, so no owner query is offered on this layer`;
+    return `Confidential flag: present but incomplete (${c.problem}): no exclusion can be built, so no owner query is offered on this layer; do not read owner fields here`;
   }
   return `Confidential flag: ${c.where} (the county flags confidential owners in ${c.field}; AND this into every query, and never show or pass on a flagged row)`;
 }
@@ -355,6 +361,35 @@ export function buildArcgisOwnerQuery(
     `&f=json` +
     (offersPagination(endpoint) ? `&resultRecordCount=25` : "")
   );
+}
+
+/**
+ * The build_owner_query refusal for an endpoint that offers no owner query.
+ * Every refusal that points the caller at another read (by location, by parcel
+ * id or address) also carries the Confidential flag line, so a flagged layer's
+ * exclusion, or the warning that its flag is incomplete, goes with the advice.
+ */
+export function ownerRefusal(owner: OwnerSearchPolicy, place: string): string {
+  let refusal: string;
+  switch (owner.kind) {
+    case "attribute_search_unsupported":
+      refusal = `OWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`;
+      break;
+    case "owner_unsearchable":
+      // The owner IS published; only a name search on it is unsupported.
+      refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nUse a parcel-id or location query instead; either returns the owner of the matching parcel.`;
+      break;
+    case "reviewed_unservable":
+      refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
+      break;
+    case "confidential_flag_incomplete":
+      refusal = `OWNER SEARCH REFUSED for ${place}: ${owner.reason}.\nNo owner query is offered on this layer until its flag record is fixed.`;
+      break;
+    default:
+      refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
+  }
+  const confidential = confidentialLine(owner);
+  return confidential ? `${refusal}\n${confidential}` : refusal;
 }
 
 /**

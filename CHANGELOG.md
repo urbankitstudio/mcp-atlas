@@ -15,9 +15,11 @@ that tells an unreachable MCP Registry from an unlisted version.
   names the column where a county flags an owner whose record must not be shown (Texas Tax Code
   §25.025): Harris (`confidential_flag`, `Y`) and Collin (`GIS_DBO_AD_Entity_confidential_`, `T`),
   plus Ector (`conf_flg`, `1`, a forward guess). `build_owner_query` and `get_parcel_endpoint`'s
-  sample owner query AND the exclusion in after the owner match and request the flag column. A
-  one-character value is a contains test (Harris packs one flag per ownership slot, `YNNNNNNNNN`),
-  a longer one an equality test. A NULL cell counts as flagged and drops out: measured live, 5,235
+  sample owner query AND the exclusion in after the owner match and request the flag column. Every
+  value is a contains test (Harris packs one flag per ownership slot, `YNNNNNNNNN`), a value longer
+  than one character included. That deliberately excludes more than the atlas's trimmed-equality
+  rule for a longer value (for `SEALED`, ` SEALED` and `UNSEALED` drop out too), which is the
+  fail-closed direction and needs no trim. A NULL cell counts as flagged and drops out: measured live, 5,235
   Harris rows and 15,003 Collin rows. The cell is cast to text and uppercased, and so is each
   value: `UPPER(CAST(field AS VARCHAR(255))) NOT LIKE '%V%'`. The cast is there because Ector's
   flag is an integer column and its server rejects the bare `NOT LIKE` with an ArcGIS error
@@ -28,12 +30,14 @@ that tells an unreachable MCP Registry from an unlisted version.
   answers it with 77,042. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
   README rule for a one-character value is the contains test, which this follows; both select the
   same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` gets the same ArcGIS error
-  on all three layers. So a value longer than one character would compare untrimmed under `<>`. No
-  current flag has one, so no verdict changes today. A flag that is present but malformed (its
-  field not a bare column name, no values, or a value that is not a non-empty string) is never
-  read as no flag: `build_owner_query` refuses an owner query on that layer, `get_parcel_endpoint`
-  prints neither sample query, `list_counties` reads `APN only (confidential flag incomplete)`,
-  and every tool reports the flag as present but incomplete. `find_county` and
+  on all three layers. A flag that is present but malformed (its field not a bare column name, no
+  values, or a value that is not ASCII letters and digits only, such as `ß`, `ı`, ` Y` or `[`) is
+  never read as no flag: `build_owner_query` refuses an owner query on that layer,
+  `get_parcel_endpoint` prints neither sample query, `list_counties` reads
+  `APN only (confidential flag incomplete)`, and every tool reports the flag as present but
+  incomplete. Every `build_owner_query` refusal that points to a location, parcel-id or address
+  read also prints the layer's `Confidential flag:` line, the exclusion or, for an incomplete
+  flag, a warning not to read owner fields there. `find_county` and
   `get_parcel_endpoint` print a `Confidential flag:` line, as they do the Scope line.
   `get_parcel_endpoint` leaves out the atlas's `sampleQuery` on a flagged layer, which predates the
   flag, and prints the sample owner query built with the exclusion instead. Counties without a

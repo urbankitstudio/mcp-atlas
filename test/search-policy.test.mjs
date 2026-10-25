@@ -22,6 +22,7 @@ import {
   confidentialExclusion,
   confidentialLine,
   parcelEndpointSamples,
+  ownerRefusal,
   ATTRIBUTE_SEARCH_UNSUPPORTED_REASON,
   OWNER_UNSEARCHABLE_REASON,
 } from "../dist/search-policy.js";
@@ -304,7 +305,7 @@ test("every flagged endpoint in the installed atlas gets the exclusion in its ow
   assert.deepEqual(seen.sort(), Object.keys(expected).sort(), "every flagged county in the installed atlas has a pinned clause");
 });
 
-test("synthetic: a longer value is an equality test, several values AND together, the scope stays first", () => {
+test("synthetic: a longer value is a contains test too, several values AND together, the scope stays first", () => {
   const p = ownerSearchPolicy({}, {
     scopeWhere: "CNTY=7",
     confidentialFlag: { field: "CONF", values: ["Y", "SEALED"] },
@@ -312,7 +313,7 @@ test("synthetic: a longer value is an equality test, several values AND together
   });
   assert.equal(
     ownerWhereClause(p.field, p.scopeWhere, "SMITH", p.confidential),
-    "((CNTY=7) AND UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) <> 'SEALED'",
+    "((CNTY=7) AND UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%SEALED%'",
   );
 });
 
@@ -326,10 +327,14 @@ test("synthetic: a refused endpoint still reports its flag, like its scope", () 
   assert.equal(p.confidential.field, "CONF");
 });
 
-test("synthetic: a flag column already among the searchable fields is not requested twice", () => {
+test("synthetic: a flag column already among the searchable fields is not requested twice, and the exclusion stays", () => {
   const ep = { ...pagingEndpoint, confidentialFlag: { field: "OWNER_NAME", values: ["Y"] } };
   const url = new URL(buildArcgisOwnerQuery(ep, ownerSearchPolicy({}, ep), "SMITH"));
   assert.equal(url.searchParams.get("outFields"), "OWNER_NAME");
+  assert.equal(
+    url.searchParams.get("where"),
+    "(UPPER(OWNER_NAME) LIKE UPPER('%SMITH%')) AND UPPER(CAST(OWNER_NAME AS VARCHAR(255))) NOT LIKE '%Y%'",
+  );
 });
 
 test("synthetic: a lowercase flag value becomes uppercase in the clause, against an UPPERed cell", () => {
@@ -337,21 +342,34 @@ test("synthetic: a lowercase flag value becomes uppercase in the clause, against
   assert.deepEqual(c, {
     kind: "exclude",
     field: "CONF",
-    where: "UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) <> 'SEALED'",
+    where: "UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' AND UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%SEALED%'",
   });
 });
 
 // A flag that is PRESENT but malformed must never read as "no flag": that
 // would drop the exclusion and hand out the owners it exists to keep out.
+const BAD_VALUE = "a flag value is not ASCII letters and digits only";
 const MALFORMED_FLAGS = [
   ["empty values", { field: "CONF", values: [] }, "the flag lists no values"],
   ["missing values", { field: "CONF" }, "the flag lists no values"],
   ["missing field", { values: ["Y"] }, "the flag names no usable column"],
   ["empty field", { field: "", values: ["Y"] }, "the flag names no usable column"],
   ["field that is not an identifier", { field: "CONF) OR (1=1", values: ["Y"] }, "the flag names no usable column"],
-  ["non-string value", { field: "CONF", values: [1] }, "a flag value is not a non-empty string"],
-  ["empty-string value", { field: "CONF", values: ["Y", ""] }, "a flag value is not a non-empty string"],
-  ["value with a line break", { field: "CONF", values: ["Y\nN"] }, "a flag value is not a non-empty string"],
+  ["non-string value", { field: "CONF", values: [1] }, BAD_VALUE],
+  ["empty-string value", { field: "CONF", values: ["Y", ""] }, BAD_VALUE],
+  ["value with a line break", { field: "CONF", values: ["Y\nN"] }, BAD_VALUE],
+  ["undefined element", { field: "CONF", values: [undefined] }, BAD_VALUE],
+  ["hole before a good value", { field: "CONF", values: [, "Y"] }, BAD_VALUE],
+  // JavaScript uppercases "ß" to "SS" and the dotless "ı" to "I"; a database
+  // may not, so neither is enforceable as written.
+  ["sharp s", { field: "CONF", values: ["ß"] }, BAD_VALUE],
+  ["dotless i", { field: "CONF", values: ["ı"] }, BAD_VALUE],
+  ["leading space", { field: "CONF", values: [" Y"] }, BAD_VALUE],
+  ["LIKE bracket", { field: "CONF", values: ["["] }, BAD_VALUE],
+  ["backslash", { field: "CONF", values: ["\\"] }, BAD_VALUE],
+  ["percent", { field: "CONF", values: ["%"] }, BAD_VALUE],
+  ["NEL", { field: "CONF", values: [String.fromCharCode(0x85)] }, BAD_VALUE],
+  ["right-to-left override", { field: "CONF", values: [String.fromCharCode(0x202e)] }, BAD_VALUE],
   ["null flag", null, "the flag record is not an object"],
 ];
 
@@ -372,9 +390,61 @@ for (const [label, flag, problem] of MALFORMED_FLAGS) {
     assert.throws(() => ownerWhereClause("OWNER_NAME", null, "SMITH", p.confidential), /confidential flag is incomplete/);
     assert.deepEqual(parcelEndpointSamples(ep, p), { atlas: null, owner: null }, "get_parcel_endpoint prints neither sample");
     assert.match(confidentialLine(p), /^Confidential flag: present but incomplete \(/);
+    assert.match(confidentialLine(p), /do not read owner fields here$/);
     assert.equal(ownerCoverageLabel({ endpoints: [ep] }), "APN only (confidential flag incomplete)");
   });
 }
+
+test("CONTROL: an ASCII letters-and-digits value list is well formed", () => {
+  for (const values of [["Y"], ["T"], ["1"], ["y", "SEALED", "007"]]) {
+    assert.equal(confidentialExclusion({ field: "CONF", values })?.kind, "exclude", JSON.stringify(values));
+  }
+});
+
+// A refusal that sends the caller to another read (by location, parcel id or
+// address) must carry the flag: the exclusion when it is well formed, the
+// warning when it is incomplete.
+const REFUSING_ENDPOINTS = [
+  ["attribute search unsupported", { attributeSearch: "unsupported", searchFields: OWNER_FIELDS }, /Query the layer by location/],
+  ["owner unsearchable", { searchFields: [{ name: "OWNER_NAME", label: "Owner", searchable: false }] }, /Use a parcel-id or location query/],
+  ["no owner column", { searchFields: [{ name: "PIN", label: "Parcel", searchable: true }] }, /Try searching by parcel number/],
+];
+
+for (const [label, base, advice] of REFUSING_ENDPOINTS) {
+  test(`build_owner_query refusal (${label}) carries the confidential line with its advice`, () => {
+    const place = "Somewhere, Texas";
+    const good = { ...base, confidentialFlag: { field: "CONF", values: ["Y"] } };
+    const goodText = ownerRefusal(ownerSearchPolicy({}, good), place);
+    assert.match(goodText, advice);
+    assert.ok(
+      goodText.split("\n").includes(
+        "Confidential flag: UPPER(CAST(CONF AS VARCHAR(255))) NOT LIKE '%Y%' (the county flags confidential owners in CONF; AND this into every query, and never show or pass on a flagged row)",
+      ),
+      goodText,
+    );
+    const bad = { ...base, confidentialFlag: { field: "CONF", values: [] } };
+    const badText = ownerRefusal(ownerSearchPolicy({}, bad), place);
+    assert.match(badText, advice);
+    assert.ok(
+      badText.split("\n").includes(
+        "Confidential flag: present but incomplete (the flag lists no values): no exclusion can be built, so no owner query is offered on this layer; do not read owner fields here",
+      ),
+      badText,
+    );
+    const plainText = ownerRefusal(ownerSearchPolicy({}, base), place);
+    assert.ok(!plainText.includes("Confidential flag"), "CONTROL: no flag, no line");
+  });
+}
+
+test("a reviewed not-published refusal carries the confidential line too", () => {
+  const reviewed = {
+    capabilityOverrides: { owner_name: { status: "not_published", basis: { type: "county_policy", note: "withheld" } } },
+  };
+  const ep = { searchFields: OWNER_FIELDS, confidentialFlag: { field: "CONF", values: [] } };
+  const text = ownerRefusal(ownerSearchPolicy(reviewed, ep), "Somewhere, Texas");
+  assert.match(text, /^OWNER NAME NOT AVAILABLE for Somewhere, Texas: withheld\n/);
+  assert.match(text, /\nConfidential flag: present but incomplete \(the flag lists no values\)/);
+});
 
 test("CONTROL: an endpoint with no flag keeps the atlas sample, and a well-formed flag withholds it", () => {
   const sampleQuery = `${pagingEndpoint.url}/query?where=1%3D1&f=json`;
@@ -431,7 +501,7 @@ test("SQL: Ector's integer cell is read as text: 0 kept; 1, 10 and NULL dropped"
   assert.deepEqual(kept(confidential, "INTEGER", [0, 1, 10, null]), [0]);
 });
 
-test("SQL, case-sensitive LIKE: Harris still drops a lowercase 'ynnnnnnnnn', and a synthetic 'sealed' drops under <>", () => {
+test("SQL, case-sensitive LIKE: Harris still drops a lowercase 'ynnnnnnnnn', and a synthetic 'Sealed' drops every cell containing it", () => {
   // The control first: the pragma does make LIKE compare case here.
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA case_sensitive_like = ON");
@@ -443,5 +513,10 @@ test("SQL, case-sensitive LIKE: Harris still drops a lowercase 'ynnnnnnnnn', and
     ["nnnnnnnnnn"],
   );
   const sealed = confidentialExclusion({ field: "CONF", values: ["Sealed"] });
-  assert.deepEqual(kept(sealed, "TEXT", ["sealed", "SEALED", "open", null], { caseSensitive: true }), ["open"]);
+  // Contains, not equality: " SEALED" and "UNSEALED" drop out too, which is
+  // more than the atlas's trimmed-equality rule would drop (fail-closed).
+  assert.deepEqual(
+    kept(sealed, "TEXT", ["sealed", "SEALED", " SEALED", "UNSEALED", "open", null], { caseSensitive: true }),
+    ["open"],
+  );
 });

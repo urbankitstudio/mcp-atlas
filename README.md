@@ -183,11 +183,13 @@ column beside the owner: Texas Tax Code §25.025 lets peace officers, judges,
 family-violence victims and others keep their home address confidential, and
 Harris and Collin mark those accounts (Ector carries a forward guess). On such
 a layer the query excludes flagged rows, as
-`(…) AND UPPER(CAST(flag AS VARCHAR(255))) NOT LIKE '%Y%'` for a one-character value
-(Harris packs one flag per ownership slot, `YNNNNNNNNN`), or
-`UPPER(CAST(flag AS VARCHAR(255))) <> 'VALUE'` for a longer one. The cast lets
-one form serve a text or an integer column, and UPPER on both sides compares
-the flag without regard to case. A row with no flag recorded (NULL) counts as flagged and drops
+`(…) AND UPPER(CAST(flag AS VARCHAR(255))) NOT LIKE '%Y%'`, a contains test
+for every flag value (Harris packs one flag per ownership slot, `YNNNNNNNNN`).
+A value longer than one character is a contains test too, which deliberately
+excludes more than the atlas's trimmed-equality rule: for `SEALED`, the cells
+` SEALED` and `UNSEALED` drop out as well. The cast lets one form serve a text
+or an integer column, and UPPER on both sides compares the flag without regard
+to case. A row with no flag recorded (NULL) counts as flagged and drops
 out. The flag column comes back with each row; never show or pass on a row
 whose flag is set.
 
@@ -198,8 +200,12 @@ nothing, hangs, or serves confidential owners:
 - the layer serves no attribute search at all (query it by location instead);
 - the owner column is not searchable by name (use a parcel-id or location query);
 - the layer carries a confidential-owner flag that is present but incomplete
-  (no column, no values, or a value that is not a non-empty string), so no
-  exclusion can be built.
+  (no column, no values, or a value that is not ASCII letters and digits
+  only), so no exclusion can be built.
+
+A refusal that points to a location, parcel-id or address read also prints the
+layer's `Confidential flag:` line: the exclusion to AND in, or, for an
+incomplete flag, a warning not to read owner fields there.
 
 Every free-text argument of every tool refuses control characters (CR, LF,
 TAB, NUL and the rest of U+0000 to U+001F, and U+007F) and the line and

@@ -39,6 +39,7 @@ import {
   escapeSqlLiteral,
   confidentialLine,
   parcelEndpointSamples,
+  ownerRefusal,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
 import { freeText } from "./tool-input.js";
@@ -564,25 +565,7 @@ server.registerTool(
         // rows forever, or one that hangs. The caller can then choose a
         // different county or query instead of concluding the owner is absent.
         const place = `${countyRecord.county}, ${countyRecord.stateName}`;
-        let refusal: string;
-        switch (owner.kind) {
-          case "attribute_search_unsupported":
-            refusal = `OWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`;
-            break;
-          case "owner_unsearchable":
-            // The owner IS published; only a name search on it is unsupported.
-            refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nUse a parcel-id or location query instead; either returns the owner of the matching parcel.`;
-            break;
-          case "reviewed_unservable":
-            refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
-            break;
-          case "confidential_flag_incomplete":
-            refusal = `OWNER SEARCH REFUSED for ${place}: ${owner.reason}.\nNo owner query is offered on this layer until its flag record is fixed.`;
-            break;
-          default:
-            refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
-        }
-        results.push(`Endpoint: ${ep.url}\n${refusal}`);
+        results.push(`Endpoint: ${ep.url}\n${ownerRefusal(owner, place)}`);
         continue;
       }
 
