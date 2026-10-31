@@ -37,8 +37,13 @@ import {
   buildArcgisOwnerQuery,
   ownerQueryRowsNote,
   escapeSqlLiteral,
+  confidentialLine,
+  parcelEndpointSamples,
+  ownerRefusal,
+  ownerLine,
   type OwnerSearchPolicy,
 } from "./search-policy.js";
+import { freeText } from "./tool-input.js";
 import {
   getCityDatasets,
   CITY_REF_MAX_LEN,
@@ -94,25 +99,22 @@ function refState(text: string): string {
 // a real trial user: they paid for owner data, ran Los Angeles County, got
 // nothing back, and the atlas had said the field was there the whole time.
 
-/** The Owner/Attribute line shared by find_county and get_parcel_endpoint. */
-function ownerLine(owner: OwnerSearchPolicy): string {
-  if (owner.field) return `Owner field: ${owner.field}`;
-  if (owner.kind === "attribute_search_unsupported") {
-    return `Attribute search: not offered (location queries only) - ${owner.reason}`;
-  }
-  if (owner.kind === "owner_unsearchable") {
-    return "Owner field: not searchable by name (column exists; use a parcel-id or location query)";
-  }
-  return owner.reason
-    ? `Owner field: NOT AVAILABLE - ${owner.reason}`
-    : "Owner field: NONE - this layer publishes no owner column";
-}
-
 /** A shared layer's county predicate, printed so a caller ANDs it into any query of their own. */
 function scopeLine(owner: OwnerSearchPolicy): string | null {
   return owner.scopeWhere
     ? `Scope: ${owner.scopeWhere} (shared layer; AND this into every query)`
     : null;
+}
+
+/**
+ * The statement the publisher's terms require wherever its data is shown (a
+ * credit line, or a disclaimer such as Springfield's for Greene MO), verbatim
+ * and never shortened, on every answer about a county record that carries one,
+ * with or without an endpoint. Empty when the record names none. The hosted
+ * MCP, the REST API and the `uks` CLI key on the record the same way.
+ */
+function creditLine(c: CountyRecord): string {
+  return c.credit ? `Data credit: ${c.credit}` : "";
 }
 
 function formatCountySummary(c: CountyRecord): string {
@@ -122,6 +124,7 @@ function formatCountySummary(c: CountyRecord): string {
       `FIPS: ${c.countyFips ?? "n/a"}`,
       coverageText(c, recordRef(c)),
       c.notes ? `Notes: ${c.notes}` : "",
+      creditLine(c),
     ]
       .filter(Boolean)
       .join("\n");
@@ -135,11 +138,13 @@ function formatCountySummary(c: CountyRecord): string {
           .map((sf) => `${sf.name} (${sf.label})`)
           .join(", ");
         const scope = scopeLine(owner);
+        const confidential = confidentialLine(owner);
         return [
           `  URL: ${ep.url}`,
           `  Service: ${ep.serviceType}/layer ${ep.layerIndex}`,
           `  Status: ${ep.status} (verified ${ep.lastVerified})`,
           ...(scope ? [`  ${scope}`] : []),
+          ...(confidential ? [`  ${confidential}`] : []),
           `  Searchable fields: ${searchable || "none"}`,
           `  ${ownerLine(owner)}`,
           `  License: ${ep.license}`,
@@ -152,6 +157,7 @@ function formatCountySummary(c: CountyRecord): string {
     `Endpoints (${c.endpoints.length}):`,
     epSummary,
     c.notes ? `Notes: ${c.notes}` : "",
+    creditLine(c),
   ]
     .filter(Boolean)
     .join("\n");
@@ -168,7 +174,7 @@ const server = new McpServer(
   { name: "mcp-atlas", version: PKG_VERSION },
   {
     instructions:
-      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL. get_city_datasets describes a covered city's code-violation, building-permit and zoning-case datasets and returns a ready query URL for a street; it holds no owner data.",
+      "UrbanKit Atlas MCP server. Use list_counties to discover coverage, find_county or get_parcel_endpoint to get the ArcGIS REST URL, and build_owner_query to construct a ready-to-fire owner-name lookup URL. get_city_datasets describes a covered city's code-violation, building-permit and zoning-case datasets and returns a ready query URL for a street; it holds no owner data. When an answer carries a 'Data credit:' line, the publisher requires that statement wherever its data is shown: show it verbatim with the county's results.",
   }
 );
 
@@ -183,8 +189,7 @@ server.registerTool(
     description:
       `Browse what the atlas covers. Answers "is this county covered?" and "what can I search there?" with one line per county: state, name, slug, and whether owner-name search is available or the county publishes parcel numbers only. Deliberately returns NO endpoint URLs or field names; call get_parcel_endpoint for one county's technical record. Filter with a state abbreviation ('IL') or name ('Illinois'), or omit state for all ~${atlas.totals.counties} counties.`,
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .optional()
         .describe(
           "Optional: two-letter state abbreviation (e.g. 'IL') or full state name (e.g. 'Illinois')"
@@ -262,8 +267,7 @@ server.registerTool(
     description:
       "Use when you do NOT already know the exact state and county. Fuzzy-matches one free-text reference ('Kane', 'Cook County IL', a misspelling, or a 5-digit FIPS code) against every covered county and names each county it matched, so an ambiguous reference comes back as a list to choose from rather than a silent guess. Each match carries that county's technical record, the same record get_parcel_endpoint returns for one county. Call get_parcel_endpoint directly whenever you already hold an exact state and county; come here only to turn a vague, misspelled or coded reference into definite ones.",
     inputSchema: {
-      query: z
-        .string()
+      query: freeText()
         .min(2)
         .describe(
           "County name, 'County Name State' (e.g. 'Kane IL'), or 5-digit FIPS code"
@@ -271,7 +275,8 @@ server.registerTool(
     },
   },
   ({ query }) => {
-    // Commas and any run of whitespace (a tab too) are one space: "Cook County, IL".
+    // Commas and any run of spaces are one space: "Cook County, IL". A tab or a
+    // line break never gets here: the schema refuses it (./tool-input.ts).
     const q = query.toLowerCase().replace(/[\s,]+/g, " ").trim();
     if (q.length < 2) {
       return {
@@ -367,13 +372,11 @@ server.registerTool(
   {
     title: "Get one county's parcel endpoint record",
     description:
-      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
+      "The default lookup once the county is known. Takes an exact state and county and returns that county's ArcGIS REST service URL, layer index, searchable field names, verified owner/taxpayer field (or why no owner query is offered), the county's Scope predicate when the layer is shared statewide or regionally (AND it into any query of your own), the exclusion for owners the county flags confidential when the layer carries such a flag (AND it in too), a generic sample ?where=…&f=json query, and the UrbanKit deep-link. If the county name is uncertain, misspelled, or you hold only a FIPS code, call find_county first. To search for a named person or company, call build_owner_query rather than editing the sample query by hand.",
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .describe("Two-letter state abbreviation (e.g. 'IL') or full state name"),
-      county: z
-        .string()
+      county: freeText()
         .describe("County name (e.g. 'Kane' or 'Kane County')"),
     },
   },
@@ -427,10 +430,9 @@ server.registerTool(
     countyRecord.endpoints.forEach((ep, i) => {
       const owner = ownerSearchPolicy(countyRecord, ep);
       const ownerField = owner.field;
-      const sampleOwnerUrl = ownerField
-        ? buildArcgisOwnerQuery(ep, owner, "SMITH")
-        : null;
+      const samples = parcelEndpointSamples(ep, owner);
       const scope = scopeLine(owner);
+      const confidential = confidentialLine(owner);
 
       lines.push(`Endpoint ${i + 1}:`);
       lines.push(`  URL:         ${ep.url}`);
@@ -441,6 +443,7 @@ server.registerTool(
       lines.push(`  CORS:        ${ep.corsEnabled === null ? "unknown" : ep.corsEnabled}`);
       lines.push(`  License:     ${ep.license}${ep.licenseUrl ? ` (${ep.licenseUrl})` : ""}`);
       if (scope) lines.push(`  ${scope}`);
+      if (confidential) lines.push(`  ${confidential}`);
       lines.push("");
       lines.push("  Searchable fields:");
       ep.searchFields
@@ -448,15 +451,17 @@ server.registerTool(
         .forEach((sf) => lines.push(`    ${sf.name.padEnd(20)} – ${sf.label}`));
       lines.push("");
       lines.push(`  ${ownerLine(owner)}`);
-      if (ep.sampleQuery) {
+      // parcelEndpointSamples withholds the atlas's sample on any flagged
+      // layer; the sample owner query carries the exclusion.
+      if (samples.atlas) {
         lines.push("");
         lines.push("  Sample query (from atlas):");
-        lines.push(`    ${ep.sampleQuery}`);
+        lines.push(`    ${samples.atlas}`);
       }
-      if (sampleOwnerUrl) {
+      if (samples.owner) {
         lines.push("");
         lines.push('  Sample owner query (SMITH — replace with target name):');
-        lines.push(`    ${sampleOwnerUrl}`);
+        lines.push(`    ${samples.owner}`);
       }
       lines.push("");
       lines.push(
@@ -464,6 +469,8 @@ server.registerTool(
       );
       if (i < countyRecord.endpoints.length - 1) lines.push("\n" + "-".repeat(40));
     });
+    const credit = creditLine(countyRecord);
+    if (credit) lines.push("", credit);
 
     return {
       content: [{ type: "text" as const, text: lines.join("\n") }],
@@ -480,16 +487,13 @@ server.registerTool(
   {
     title: "Build an owner-name search URL for one county",
     description:
-      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), or when its owner column is not searchable by name (use a parcel-id or location query instead).",
+      "The only tool that searches for a named owner. Fills a person or company name into that county's verified owner/taxpayer field as UPPER(field) LIKE UPPER('%NAME%'), a case-insensitive partial match, and returns a URL you can fetch or open in a browser. On a shared statewide or regional layer the county's scope predicate is ANDed in front, as (scope) AND UPPER(field) LIKE …, so only that county's rows come back. Where the layer carries the county's own confidential-owner flag (Texas Tax Code §25.025), flagged rows are excluded in the query, a row with no flag recorded counts as flagged, and the flag column is returned with each row. get_parcel_endpoint returns the endpoint and a generic sample query, not a name search, so come here for the name. This server does not execute the query and returns no parcel records: fetch the returned URL yourself. An endpoint is refused, with the reason, when a reviewed record says the county publishes no owner name, when the layer serves no attribute search (query it by location instead), when its owner column is not searchable by name (use a parcel-id or location query instead), or when the layer's confidential-owner flag is present but incomplete, so no exclusion can be built.",
     inputSchema: {
-      state: z
-        .string()
+      state: freeText()
         .describe("Two-letter state abbreviation (e.g. 'IL') or full state name"),
-      county: z
-        .string()
+      county: freeText()
         .describe("County name (e.g. 'Kane' or 'Kane County')"),
-      owner_name: z
-        .string()
+      owner_name: freeText()
         .min(2)
         .describe("Owner/taxpayer name to search for (partial match, case-insensitive)"),
     },
@@ -545,34 +549,21 @@ server.registerTool(
         // rows forever, or one that hangs. The caller can then choose a
         // different county or query instead of concluding the owner is absent.
         const place = `${countyRecord.county}, ${countyRecord.stateName}`;
-        let refusal: string;
-        switch (owner.kind) {
-          case "attribute_search_unsupported":
-            refusal = `OWNER SEARCH NOT OFFERED on this layer for ${place}: ${owner.reason}\nNo where-clause query is possible here. Query the layer by location (a point or envelope geometry) to read the owner fields of the parcels there.`;
-            break;
-          case "owner_unsearchable":
-            // The owner IS published; only a name search on it is unsupported.
-            refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nUse a parcel-id or location query instead; either returns the owner of the matching parcel.`;
-            break;
-          case "reviewed_unservable":
-            refusal = `OWNER NAME NOT AVAILABLE for ${place}: ${owner.reason}\nNo owner query is possible here. Search by parcel number or address instead, or pick a county whose coverage reads owner+APN in list_counties.`;
-            break;
-          default:
-            refusal = "Note: this layer publishes no owner or taxpayer column - PIN-only lookup. Try searching by parcel number instead.";
-        }
-        results.push(`Endpoint: ${ep.url}\n${refusal}`);
+        results.push(`Endpoint: ${ep.url}\n${ownerRefusal(owner, place)}`);
         continue;
       }
 
       const queryUrl = buildArcgisOwnerQuery(ep, owner, owner_name);
-      const where = ownerWhereClause(ownerField, owner.scopeWhere, owner_name);
+      const where = ownerWhereClause(ownerField, owner.scopeWhere, owner_name, owner.confidential);
       const scope = scopeLine(owner);
+      const confidential = confidentialLine(owner);
 
       results.push(
         [
           `County:      ${countyRecord.county}, ${countyRecord.stateName}`,
           `Owner field: ${ownerField}`,
           ...(scope ? [scope] : []),
+          ...(confidential ? [confidential] : []),
           `WHERE clause: ${where}`,
           ``,
           `Query URL:`,
@@ -580,12 +571,21 @@ server.registerTool(
           ``,
           `Notes:`,
           `  - ${ownerQueryRowsNote(ep)}`,
+          ...(owner.confidential?.kind === "exclude"
+            ? [
+                `  - Owners the county flags confidential are excluded, and a row with no flag recorded (NULL) counts as flagged. ${owner.confidential.field} comes back with each row: if one is flagged, do not show or pass it on`,
+              ]
+            : []),
           `  - Partial name match (e.g. "SMITH" matches "SMITH JOHN" and "BLACKSMITH LLC")`,
           `  - Case-insensitive`,
           `  - Add &token=<your-token> if the service requires auth (this county is public)`,
         ].join("\n")
       );
     }
+
+    // The URLs fetch the publisher's rows, so its statement goes with them.
+    const credit = creditLine(countyRecord);
+    if (credit) results.push(credit);
 
     return {
       content: [{ type: "text" as const, text: results.join("\n\n" + "=".repeat(60) + "\n\n") }],
@@ -607,19 +607,23 @@ server.registerTool(
     description:
       "Find the public code-violation, building-permit and zoning-case datasets UrbanKit has verified for a U.S. city, and how to query them by street. Give a city slug or name (state optional), optionally a kind ('violations', 'permits' or 'zoning') and a street; omit city to list every covered city. Returns each dataset's endpoint (Socrata, ArcGIS, CKAN or CARTO), the address column it searches, its date field and filter, coverage notes, and a ready query URL you run yourself against the city's server. This server does not execute the query and returns no city records: fetch the returned URL yourself. Returns no owner data: for a parcel's owner use get_parcel_endpoint or build_owner_query.",
     inputSchema: {
-      city: z
-        .string()
+      city: freeText()
         .max(CITY_REF_MAX_LEN)
         .optional()
         .describe("City slug ('fort-worth') or name ('Fort Worth', 'Fort Worth, TX'). Omit to list covered cities."),
-      state: z
-        .string()
+      state: freeText()
         .max(CITY_STATE_MAX_LEN)
         .optional()
         .describe("Optional 2-letter code or state name, for a name used in two states."),
-      kind: z.enum(["violations", "permits", "zoning"]).optional(),
-      street: z
-        .string()
+      // zod's own enum error quotes the value it received, and the SDK prints
+      // that error in the answer, so a kind carrying a line break would land
+      // there raw. This message names the choices and never the input.
+      kind: z
+        .enum(["violations", "permits", "zoning"], {
+          errorMap: () => ({ message: "kind must be violations, permits or zoning" }),
+        })
+        .optional(),
+      street: freeText()
         .max(CITY_STREET_MAX_LEN)
         .optional()
         .describe("Optional street line only, e.g. 'Commerce' or '600 Commerce St'. A street name alone returns the most."),

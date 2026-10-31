@@ -1,6 +1,6 @@
-# CLAUDE.md: urbankitstudio/mcp-atlas
+# Maintaining urbankitstudio/mcp-atlas
 
-Rules for any Claude session working in this repository. Keep this file under 80 lines.
+Rules for anyone working in this repository. Keep this file under 80 lines.
 
 ## What this is
 
@@ -16,12 +16,10 @@ publish.yml updates on every release over GitHub OIDC. Until 0.2.20 the name was
 
 ## What it follows
 
-- The atlas is authored in the UKS repo (`urbankitstudio/urbankitstudio`, `packages/atlas`),
-  mirrored to `urbankitstudio/atlas`, and published from there. When the atlas releases,
-  this server follows with a dependency bump and a release of its own.
-- The UKS site advertises this package's version, and its `advertised-version-drift.yml`
-  compares that against npm daily, so a release here turns that check red until the site
-  catches up.
+- The atlas publishes from `urbankitstudio/atlas`. When the atlas releases, this server
+  follows with a dependency bump and a release of its own.
+- The UrbanKit Studio site advertises this package's version and checks it against npm
+  daily, so a release here reads as drift there until the site catches up.
 
 ## Agent-first (Leo, 2026-09-26)
 

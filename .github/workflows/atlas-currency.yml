@@ -6,8 +6,8 @@
 # server is one of them, and nothing told anyone when it fell behind: atlas
 # 0.6.6 to 0.6.8 shipped while the lockfile stayed at 0.6.5. The fact this
 # check needs lives on npm, so no hermetic test in this repo can catch the lag.
-# This workflow looks outward on a schedule, modelled on the UKS repo's
-# advertised-version-drift.yml. scripts/check-atlas-currency.mjs explains why
+# This workflow looks outward on a schedule, like the site's own daily
+# version check. scripts/check-atlas-currency.mjs explains why
 # the lockfile, not the published range, is the version compared.
 #
 # WHY NOT ON PUSH OR PULL REQUEST. It needs the network, and a network flake
@@ -25,7 +25,7 @@ name: Atlas currency
 on:
   schedule:
     # Daily 07:10 UTC: clear of the top of the hour, when GitHub delays
-    # schedules, and of the UKS repo's 06:25 and 06:40 UTC jobs.
+    # schedules.
     - cron: '10 7 * * *'
   workflow_dispatch:
 

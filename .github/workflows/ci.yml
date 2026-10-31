@@ -1,8 +1,7 @@
 # PR-time gate for @urbankitstudio/mcp-atlas.
 #
-# WHY THIS IS NEW RATHER THAN COPIED. While this package lived in the monorepo
-# it had NO pull-request CI at all - `mcp-atlas` appears nowhere in that repo's
-# ci.yml, e2e.yml or deploy.yml. Its only automated gate was the one embedded in
+# WHY THIS IS NEW RATHER THAN COPIED. While this package lived in its earlier
+# repository it had NO pull-request CI at all. Its only automated gate was the one embedded in
 # the publish workflow, which runs on push-to-main or a manual dispatch and
 # never on a PR. So a change could only be found broken at release time. These
 # steps are the publish workflow's gates, lifted so they run before a merge

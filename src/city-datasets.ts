@@ -10,8 +10,8 @@
  * inside the package, so there is no "registry temporarily unavailable" case
  * here, and every URL it returns is a string for the caller to run.
  *
- * It mirrors the hosted MCP tool of the same name (urbankitstudio api/mcp.ts,
- * case "get_city_datasets"): same input caps, same enum, same street handling
+ * It mirrors the hosted MCP tool of the same name (get_city_datasets on
+ * urbankitstudio.com/api/mcp): same input caps, same enum, same street handling
  * (cut at the first comma, then trim), and the same snake_case wire keys for the
  * list, found, ambiguous and not-found answers. The deliberate differences:
  *   - the hosted metering sentence is gone (this server has no tiers or keys),
