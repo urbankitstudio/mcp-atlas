@@ -669,6 +669,11 @@ async function run() {
     !/UPPER\((DEEDEDOWNR|OWNNAME)\)/.test(hamiltonQuery) && !hamiltonQuery.includes("where="),
     "build_owner_query hands back no owner WHERE clause or query URL for Hamilton IN",
   );
+  sendMessage(proc, creditId++, "tools/call", { name: "list_counties", arguments: { state: "IN" } });
+  const inText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  const hamiltonRow = inText.split("\n").find((l) => l.includes("Hamilton")) ?? "";
+  assert(hamiltonRow.includes("owner name withheld"), "list_counties SAYS Hamilton IN's owner name is withheld");
+  assert(!hamiltonRow.includes("publishes no owner name"), "list_counties does not say Hamilton IN publishes no owner name");
 
   // Step: confidential owners. Atlas 0.6.43 names the column in which Harris,
   // Collin and Ector flag an owner whose record must not be shown (Texas Tax

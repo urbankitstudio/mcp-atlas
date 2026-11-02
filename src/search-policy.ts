@@ -398,7 +398,12 @@ export function ownerWhereClause(
  * What each label promises a caller deciding whether to spend a request:
  *   "owner+APN"            build_owner_query returns a URL for at least one endpoint.
  *   "APN only (county publishes no owner name)"
- *                          a reviewed record says owner names are not served.
+ *                          a reviewed record says the county serves no owner name
+ *                          (status not_published).
+ *   "APN only (owner name withheld)"
+ *                          a reviewed record says the county does publish owner
+ *                          names and they are withheld, by the county's terms or
+ *                          while the county is asked (status restricted).
  *   "location queries only"
  *                          no endpoint answers attribute searches; parcels are
  *                          reached by geometry, which also returns owner fields.
@@ -414,7 +419,11 @@ export function ownerCoverageLabel(
 ): string {
   const kinds = county.endpoints.map((ep) => ownerSearchPolicy(county, ep).kind);
   if (kinds.includes("offered")) return "owner+APN";
-  if (kinds.includes("reviewed_unservable")) return "APN only (county publishes no owner name)";
+  if (kinds.includes("reviewed_unservable")) {
+    return reviewedCapability(county, "owner_name")?.status === "restricted"
+      ? "APN only (owner name withheld)"
+      : "APN only (county publishes no owner name)";
+  }
   if (kinds.length > 0 && kinds.every((k) => k === "attribute_search_unsupported")) {
     return "location queries only";
   }

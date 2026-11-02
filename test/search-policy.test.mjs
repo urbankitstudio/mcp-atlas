@@ -67,7 +67,27 @@ test("a reviewed not_published owner keeps its reviewed wording and outranks sea
   assert.equal(p.kind, "reviewed_unservable");
   assert.equal(p.field, null);
   assert.equal(p.reason, reviewedCapability(bergen, "owner_name").basis.note);
-  assert.equal(ownerCoverageLabel(bergen), "APN only (county publishes no owner name)");
+  // Bergen's reviewed status is restricted (Daniel's Law), so it reads as withheld;
+  // Oakland MI is the real not_published record and keeps the old label.
+  assert.equal(reviewedCapability(bergen, "owner_name").status, "restricted");
+  assert.equal(ownerCoverageLabel(bergen), "APN only (owner name withheld)");
+  const oakland = county("michigan", "mi-oakland");
+  assert.equal(reviewedCapability(oakland, "owner_name").status, "not_published");
+  assert.equal(ownerCoverageLabel(oakland), "APN only (county publishes no owner name)");
+});
+
+test("a reviewed restricted owner is labelled withheld, not unpublished (Hamilton IN, and a synthetic permission_pending)", () => {
+  const hamilton = county("indiana", "in-hamilton");
+  assert.equal(reviewedCapability(hamilton, "owner_name").status, "restricted");
+  assert.equal(ownerSearchPolicy(hamilton, hamilton.endpoints[0]).kind, "reviewed_unservable");
+  assert.equal(ownerCoverageLabel(hamilton), "APN only (owner name withheld)");
+  const pending = {
+    capabilityOverrides: {
+      owner_name: { status: "restricted", basis: { type: "permission_pending", note: "We asked the county." } },
+    },
+    endpoints: [{ searchFields: [{ name: "OWNER", label: "Owner", searchable: false }] }],
+  };
+  assert.equal(ownerCoverageLabel(pending), "APN only (owner name withheld)");
 });
 
 test("a plain county (Kane IL) gets an unscoped owner query", () => {

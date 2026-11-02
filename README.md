@@ -124,6 +124,7 @@ What each Coverage label promises:
 |-------|---------|
 | `owner+APN` | `build_owner_query` returns a URL for at least one endpoint |
 | `APN only (county publishes no owner name)` | A reviewed record says the county serves no usable owner name |
+| `APN only (owner name withheld)` | A reviewed record says owner names are withheld, by the county's terms or while we ask the county |
 | `location queries only` | No endpoint answers attribute searches; parcels are reached by geometry, which also returns owner fields |
 | `APN only (owner column not searchable)` | An owner column exists but the county marks it unsearchable by name; a parcel-id or location query returns it |
 | `APN only (confidential flag incomplete)` | An owner column exists, but the layer's confidential-owner flag is malformed, so no owner query is offered |

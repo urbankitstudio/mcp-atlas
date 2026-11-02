@@ -100,6 +100,9 @@ accepts 0.7.x, so the range had to be raised for this server to receive them.
   status and the basis note, never the basis type, so a county withheld while the county is asked
   (York SC, Boone IN) is refused the same way and prints the atlas's note. Atlas 0.6.48 moved
   Columbia PA's recheck date; the smoke test now reads it from the installed atlas.
+- **`list_counties` tells a withheld owner name apart from an unpublished one.** A county whose
+  reviewed owner name is `restricted` reads `APN only (owner name withheld)`; one that is
+  `not_published` keeps `APN only (county publishes no owner name)`.
 - **publish.yml: Confirm on the MCP Registry.** Run 39183889390 failed this step on eight 20 s
   timeouts with 0 bytes received while 0.3.10 had landed. The step (now
   `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
