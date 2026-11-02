@@ -401,9 +401,9 @@ export function ownerWhereClause(
  *                          a reviewed record says the county serves no owner name
  *                          (status not_published).
  *   "APN only (owner name withheld)"
- *                          a reviewed record says the county does publish owner
- *                          names and they are withheld, by the county's terms or
- *                          while the county is asked (status restricted).
+ *                          a reviewed record says owner names are withheld: by a
+ *                          statute, by the county's terms, or while the county is
+ *                          asked (status restricted).
  *   "location queries only"
  *                          no endpoint answers attribute searches; parcels are
  *                          reached by geometry, which also returns owner fields.

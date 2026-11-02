@@ -60,7 +60,7 @@ test("a county served only by the FDOR layer is labelled location queries only",
   assert.equal(ownerCoverageLabel(county("florida", "fl-baker")), "location queries only");
 });
 
-test("a reviewed not_published owner keeps its reviewed wording and outranks searchable:false", () => {
+test("a reviewed owner record keeps its reviewed wording, outranks searchable:false, and labels by status", () => {
   // Bergen's OWNER_NAME is also marked searchable:false; the reviewed record must win.
   const bergen = county("new-jersey", "nj-bergen");
   const p = ownerSearchPolicy(bergen, bergen.endpoints[0]);
