@@ -8,10 +8,12 @@ the earlier repository to draw from.
 
 ## 0.3.11 — 2026-10-25
 
-Atlas ^0.6.46, the confidential-owner exclusion, the publisher's data credit, and a publish step
+Atlas ^0.7.2, the confidential-owner exclusion, the publisher's data credit, and a publish step
 that tells an unreachable MCP Registry from an unlisted version. The atlas range moves past
-0.6.44 (flag-excluding sample queries), 0.6.45 (Stafford VA and Carroll OH join: 503 counties,
-498 endpoints) and 0.6.46 (`confidentialFlag.safeValues`, which the exclusion below requires).
+0.6.44 (flag-excluding sample queries), 0.6.45 (Stafford VA and Carroll OH join), 0.6.46
+(`confidentialFlag.safeValues`, which the exclusion below requires) and 0.6.48 to 0.7.2 (twelve
+more counties join: 515 counties, 509 endpoints). Under 0.x semver `^0.6` never
+accepts 0.7.x, so the range had to be raised for this server to receive them.
 
 - **Confidential owners are excluded from every owner query.** Atlas 0.6.43's `confidentialFlag`
   names the column where a county flags an owner whose record must not be shown (Texas Tax Code
@@ -79,13 +81,25 @@ that tells an unreachable MCP Registry from an unlisted version. The atlas range
 - **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
   county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
   layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
-- **Atlas ^0.6.43, then ^0.6.46 (see the opening of this entry).** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
+- **Atlas ^0.6.43, then ^0.6.46, then ^0.7.2 (see the opening of this entry).** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
   from posting ownership online). Laurel KY is recorded with no public service. Thurston WA and
   Charleston SC lose their endpoint (licence-restricted), so they get the coverage answer. Totals:
   501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without at 0.6.43;
-  at 0.6.46, 503, 498, 471 and 32. These numbers in README.md, the package.json description and the server.json description are now
+  at 0.6.46, 503, 498, 471 and 32; at 0.7.2, 515, 509, 481 and 34. These numbers in README.md, the package.json description and the server.json description are now
   written by `node scripts/sync-coverage.mjs` from the installed atlas, and
   `test/coverage-claims.test.mjs` fails in `test:policy` when one is stale.
+- **What atlas 0.7.x changes for this server.** Hamilton County IN is restricted under the county's
+  cited statute (Ind. Code 5-14-3-3(e)): `owner_name` and `owner_mailing_address` are withheld, so
+  `build_owner_query` refuses an owner query there and `find_county` and `build_owner_query` print the
+  county's own wording. Nevada County CA's owner mailing address is now served by the atlas (this
+  server builds owner-name queries only, so its answers for Nevada are unchanged), and its
+  `Data credit:` line is the county's full 782-character statement, printed in full (the atlas
+  raised its cap on `credit` from 600 to 900 characters); the owner name stays unpublished.
+  Atlas 0.7.0 widened `CapabilityBasisType` with
+  `permission_pending`, which always comes with `status: "restricted"`. This server reads only the
+  status and the basis note, never the basis type, so a county withheld while the county is asked
+  (York SC, Boone IN) is refused the same way and prints the atlas's note. Atlas 0.6.48 moved
+  Columbia PA's recheck date; the smoke test now reads it from the installed atlas.
 - **publish.yml: Confirm on the MCP Registry.** Run 39183889390 failed this step on eight 20 s
   timeouts with 0 bytes received while 0.3.10 had landed. The step (now
   `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS

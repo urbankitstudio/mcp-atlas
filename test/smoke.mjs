@@ -9,7 +9,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { atlas } from "@urbankitstudio/atlas";
+import { atlas, findCounty } from "@urbankitstudio/atlas";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 
@@ -428,7 +428,11 @@ async function run() {
   // recheck date (Columbia PA) and the county's own paid product (Lancaster PA).
   sendMessage(proc, 23, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "PA", county: "Columbia" } });
   const columbia = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-  assert(columbia.includes("Next check: 2026-10-24"), "get_parcel_endpoint prints Columbia PA's planned recheck date");
+  const columbiaRecheck = findCounty("pennsylvania", "columbia-county")?.coverage?.recheck;
+  assert(
+    typeof columbiaRecheck === "string" && columbiaRecheck.length > 0 && columbia.includes(`Next check: ${columbiaRecheck}`),
+    "get_parcel_endpoint prints Columbia PA's planned recheck date",
+  );
   sendMessage(proc, 24, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "PA", county: "Lancaster" } });
   const lancaster = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
   assert(
@@ -619,6 +623,7 @@ async function run() {
   const credited = [
     ["CO", "Jefferson", "colorado"],
     ["MO", "Greene", "missouri"],
+    ["CA", "Nevada", "california"],
   ];
   let creditId = 100;
   for (const [st, name, slug] of credited) {
@@ -645,6 +650,25 @@ async function run() {
     const text = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
     assert(text.includes("TaxName") && !text.includes("Data credit:"), `CONTROL ${tool} prints no data credit for Kane IL`);
   }
+
+  // Step: atlas 0.7.x. Nevada CA's credit runs past 600 characters (782 in
+  // 0.7.2) and is printed whole; Hamilton IN's owner fields are restricted
+  // under the county's cited statute, so no owner query is built for it.
+  const nevadaCredit = atlas.byStateSlug.get("california")?.counties.find((c) => c.county === "Nevada")?.credit ?? "";
+  assert(nevadaCredit.length > 600, "Nevada CA's credit in the installed atlas is longer than 600 characters");
+  const hamilton = atlas.byStateSlug.get("indiana")?.counties.find((c) => c.county === "Hamilton");
+  const hamiltonBasis = hamilton?.capabilityOverrides?.owner_name?.basis;
+  assert(
+    hamilton?.capabilityOverrides?.owner_name?.status === "restricted" && hamiltonBasis?.type === "county_cited_statute",
+    "Hamilton IN's owner_name is restricted under county_cited_statute in the installed atlas",
+  );
+  sendMessage(proc, creditId++, "tools/call", { name: "build_owner_query", arguments: { state: "IN", county: "Hamilton", owner_name: "SMITH" } });
+  const hamiltonQuery = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
+  assert(hamiltonQuery.includes("OWNER NAME NOT AVAILABLE"), "build_owner_query REFUSES an owner query for Hamilton IN");
+  assert(
+    !/UPPER\((DEEDEDOWNR|OWNNAME)\)/.test(hamiltonQuery) && !hamiltonQuery.includes("where="),
+    "build_owner_query hands back no owner WHERE clause or query URL for Hamilton IN",
+  );
 
   // Step: confidential owners. Atlas 0.6.43 names the column in which Harris,
   // Collin and Ector flag an owner whose record must not be shown (Texas Tax
