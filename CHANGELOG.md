@@ -4,7 +4,123 @@ This package did not previously carry a changelog. 0.1.0 through 0.1.5 below
 are reconstructed from `npm view @urbankitstudio/mcp-atlas@<version>` metadata
 and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
-this monorepo to draw from.
+the earlier repository to draw from.
+
+## 0.3.11 — 2026-10-25
+
+Atlas ^0.7.2, the confidential-owner exclusion, the publisher's data credit, and a publish step
+that tells an unreachable MCP Registry from an unlisted version. The atlas range moves past
+0.6.44 (flag-excluding sample queries), 0.6.45 (Stafford VA and Carroll OH join), 0.6.46
+(`confidentialFlag.safeValues`, which the exclusion below requires) and 0.6.48 to 0.7.2 (twelve
+more counties join: 515 counties, 509 endpoints). Under 0.x semver `^0.6` never
+accepts 0.7.x, so the range had to be raised for this server to receive them.
+
+- **Confidential owners are excluded from every owner query.** Atlas 0.6.43's `confidentialFlag`
+  names the column where a county flags an owner whose record must not be shown (Texas Tax Code
+  §25.025): Harris (`confidential_flag`, `Y`) and Collin (`GIS_DBO_AD_Entity_confidential_`, `T`),
+  plus Ector (`conf_flg`, `1`, a forward guess). `build_owner_query` and `get_parcel_endpoint`'s
+  sample owner query AND the exclusion in after the owner match and request the flag column. Every
+  value is a contains test (Harris packs one flag per ownership slot, `YNNNNNNNNN`), a value longer
+  than one character included. That deliberately excludes more than the atlas's trimmed-equality
+  rule for a longer value (for `SEALED`, ` SEALED` and `UNSEALED` drop out too), which is the
+  fail-closed direction and needs no trim. A NULL cell counts as flagged and drops out: measured live, 5,235
+  Harris rows and 15,003 Collin rows. The cell is cast to text and uppercased, and so is each
+  value: `UPPER(CAST(field AS VARCHAR(255))) NOT LIKE '%V%'`. The cast is there because Ector's
+  flag is an integer column and its server rejects the bare `NOT LIKE` with an ArcGIS error
+  (code 400, inside an HTTP 200 response). The UPPER is there because the atlas compares after
+  uppercasing, and a backend whose LIKE compares case would otherwise keep a lowercase flag. SQL
+  UPPER matches JavaScript's on ASCII only, so each of the 17 non-ASCII characters whose
+  JavaScript uppercase holds an ASCII letter (`ß`, a dotless i, the `ﬁ` ligatures, `ẙ` and the
+  like) that shares a letter with a value gets its own `CAST(field AS VARCHAR(255)) NOT LIKE '%c%'`
+  on the raw cell (`UPPER_TO_ASCII`; a test recomputes the list over every code point, and another
+  applies the real clauses in SQLite with case-sensitive LIKE). Those clauses still lean on the
+  backend (an UPPER that maps a-z to A-Z, a LIKE that reads past an embedded NUL, no truncation
+  at the cast, one encoding), so the query ends with `field IN (...)` over atlas 0.6.46's
+  `confidentialFlag.safeValues`, the exact raw cells a layer holds for an unflagged owner
+  (Harris's blank and N runs, each padded to 10 characters; Collin `F`; Ector `0`): a row stays
+  only when its cell is one of them, so a NUL, a cut-off cell or an unreviewed value drops out. A
+  flag without safe values, or with a safe value that holds a marker, is incomplete. Measured live
+  on 2026-10-26, the IN clause keeps exactly the rows the contains clauses keep (Harris
+  1,541,671, Collin 435,783, Ector 77,042), and the lists are each layer's complete distinct
+  values. Measured live on 2026-10-25, Harris and Collin already compare case-insensitively, and the
+  UPPER form keeps the same rows as the bare form (Harris 1,541,671, Collin 435,783); Ector
+  answers it with 77,042. The atlas's own changelog writes Collin's clause as `<> 'T'`, but its
+  README rule for a one-character value is the contains test, which this follows; both select the
+  same 435,783 rows live. The cell is not trimmed, because `TRIM(...)` gets the same ArcGIS error
+  on all three layers. A flag that is present but malformed (its field not a bare column name, no
+  values, or a value that is not ASCII letters and digits only, such as `ß`, `ı`, ` Y` or `[`) is
+  never read as no flag: `build_owner_query` refuses an owner query on that layer,
+  `get_parcel_endpoint` prints neither sample query, `list_counties` reads
+  `APN only (confidential flag incomplete)`, and every tool reports the flag as present but
+  incomplete. Every `build_owner_query` refusal that points to a location, parcel-id or address
+  read also prints the layer's `Confidential flag:` line, and its advice follows the flag: with a
+  well-formed flag the read must request the flag column and keep a row only when its flag cell is
+  exactly one of the safe values and contains no flag value, dropping every other row, a missing or
+  NULL cell included (a layer with no attribute search takes no where clause, so that
+  filtering is the reader's, and its `Confidential flag:` line gives that row rule in place of
+  "AND this into every query"), and with an incomplete flag it advises no read of owner fields at
+  all. `find_county` and `get_parcel_endpoint` carry the same advice in their `Confidential flag:`
+  line, and their Owner line says why no owner query is offered. `find_county` and
+  `get_parcel_endpoint` print a `Confidential flag:` line, as they do the Scope line.
+  `get_parcel_endpoint` leaves out the atlas's `sampleQuery` on a flagged layer and prints the
+  sample owner query built with this server's exclusion instead, so the one sample shown carries
+  the clauses described above. Counties without a
+  confidential flag get the same owner queries as in 0.3.10, and credited counties also print the
+  new Data credit line.
+- **Free-text arguments refuse control characters.** Every free-text argument of every tool
+  (`owner_name`, `state`, `county`, `query`, `city`, `street`) now refuses the ASCII control
+  characters U+0000 to U+001F and U+007F, which take in CR, LF and TAB, the C1 controls U+0080 to
+  U+009F (NEL and CSI among them), the line and paragraph separators U+2028 and U+2029, and the
+  whole Bidi_Control set (U+061C, U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069), with a
+  clear error. Other invisible characters (U+200B, U+FEFF, the soft hyphen) still pass. An
+  argument is echoed into the answer, and a line break in `owner_name` could print a fake
+  `Query URL:` line carrying an unfiltered URL there. This predates 0.3.11. `find_county` accepted
+  a tab between words since 0.3.8 and now refuses it; a space or a comma still works. A bad
+  `get_city_datasets` `kind` now gets "kind must be violations, permits or zoning" instead of
+  zod's error, which quoted the value it refused.
+- **Data credit.** `find_county`, `get_parcel_endpoint` and `build_owner_query` print a credited
+  county's `Data credit:` statement verbatim (atlas 0.6.41: the ten Colorado counties on the State's
+  layer, Greene MO's Springfield disclaimer, San Francisco). `list_counties` carries none.
+- **Atlas ^0.6.43, then ^0.6.46, then ^0.7.2 (see the opening of this entry).** San Francisco CA joins (parcels, no owner name: state law bars the Assessor
+  from posting ownership online). Laurel KY is recorded with no public service. Thurston WA and
+  Charleston SC lose their endpoint (licence-restricted), so they get the coverage answer. Totals:
+  501 counties, 496 endpoints (all live), 469 counties with an endpoint and 32 without at 0.6.43;
+  at 0.6.46, 503, 498, 471 and 32; at 0.7.2, 515, 509, 481 and 34. These numbers in README.md, the package.json description and the server.json description are now
+  written by `node scripts/sync-coverage.mjs` from the installed atlas, and
+  `test/coverage-claims.test.mjs` fails in `test:policy` when one is stale.
+- **What atlas 0.7.x changes for this server.** Hamilton County IN is restricted under the county's
+  cited statute (Ind. Code 5-14-3-3(e)): `owner_name` and `owner_mailing_address` are withheld, so
+  `build_owner_query` refuses an owner query there and `find_county` and `build_owner_query` print the
+  county's own wording. Nevada County CA's owner mailing address is now served by the atlas (this
+  server builds owner-name queries only, so its answers for Nevada are unchanged), and its
+  `Data credit:` line is the county's full 782-character statement, printed in full (the atlas
+  raised its cap on `credit` from 600 to 900 characters); the owner name stays unpublished.
+  Atlas 0.7.0 widened `CapabilityBasisType` with
+  `permission_pending`, which always comes with `status: "restricted"`. This server reads only the
+  status and the basis note, never the basis type, so a county withheld while the county is asked
+  (York SC, Boone IN) is refused the same way and prints the atlas's note. Atlas 0.6.48 moved
+  Columbia PA's recheck date; the smoke test now reads it from the installed atlas.
+- **`list_counties` tells a withheld owner name apart from an unpublished one.** A county whose
+  reviewed owner name is `restricted` reads `APN only (owner name withheld)`; one that is
+  `not_published` keeps `APN only (county publishes no owner name)`.
+- **publish.yml: Confirm on the MCP Registry.** Run 39183889390 failed this step on eight 20 s
+  timeouts with 0 bytes received while 0.3.10 had landed. The step (now
+  `scripts/confirm-registry.mjs`) passes when the version is listed on any page of the listing, FAILS
+  when the registry answers and no page lists it, and ends as a warning, after a 30..120 s backoff,
+  when the registry cannot be reached. It prints the length of a repeated cursor, never the
+  cursor, and every line it logs is escaped first: a control character or line separator, the
+  first `:` of any `::` and the first `#` of any `##[` are written as visible `\uXXXX` escapes,
+  so no logged line carries a line break, a `::` or a `##[` it did not write itself. Its tests
+  run in `test:policy`, name each hostile fixture by a label rather than its text, and
+  `test/log-hygiene.test.mjs` fails `test:policy` when any test title could form a workflow
+  command; smoke withholds and fails such an assertion label. The read-back is its own `confirm-registry` job (`needs: publish`,
+  `contents: read`, no environment), so its wait of up to 14 minutes holds no npm publish
+  identity, and the publish job's timeout goes from 27 to 25 minutes. The job's gate is
+  `!cancelled()` rather than success, so after a publish-job failure that follows the registry
+  publish it is still eligible to run; whether it reads the entry back then rests on the failed
+  job's output reaching it, which GitHub's docs do not state outright. A dry run or an earlier
+  failure leaves nothing to read back, and it skips.
+- UrbanKit Studio LLC is named as the license holder and package author.
 
 ## 0.3.10 — 2026-10-18
 
@@ -433,7 +549,7 @@ verified any other way.
   change is invisible on npmjs.com until a version ships.
 
 0.2.4 was the first release published from this repository rather than the
-private monorepo, over OIDC and with provenance. 0.2.5 is the first published
+earlier private repository, over OIDC and with provenance. 0.2.5 is the first published
 under the environment restriction as well.
 
 ## 0.2.4 — 2026-09-20
@@ -446,13 +562,13 @@ directly.
 - **Catch-up to atlas 0.6.5**: 171 → 227 counties across all 50 states, 174 →
   241 verified endpoints. Florida alone grew from 11 to 67 counties. The
   `description` and `README.md` county counts were already updated to
-  227/241 on `main` as part of the data change that added Florida
-  (urbankitstudio#759); this release is the version bump and republish that
+  227/241 on `main` as part of the data change that added Florida;
+  this release is the version bump and republish that
   actually ships that text and the atlas dependency's now-current data to
   installs, since editing a manifest on `main` doesn't reach anyone who
   already `npm install`ed. README's `(atlas 0.6.2)` freshness note is
   corrected to `(atlas 0.6.5)` — those 227/241 numbers were never true of the
-  real atlas 0.6.2 (which shipped 171/174; see `packages/atlas/CHANGELOG.md`).
+  real atlas 0.6.2 (which shipped 171/174; see the atlas package's CHANGELOG).
 - **`dependencies["@urbankitstudio/atlas"]` floor deliberately left at
   `^0.6.2`, not raised to `^0.6.5`.** Every prior "catch-up" release raised
   the floor to the atlas version it was verified against, but each of those
@@ -471,7 +587,7 @@ directly.
 No code change. The package manifest gains the `mcpName` field
 (`io.github.LEOyrh/mcp-atlas`) that the official MCP registry reads from the
 published npm package to prove the publisher owns it. 0.1.5 carried it, the
-monorepo's manifest never did, and every publish since (0.1.6 through 0.2.2)
+earlier repository's manifest never did, and every publish since (0.1.6 through 0.2.2)
 went out without it, so the registry refused to list any of them: it still
 served 0.1.5 with the old repository URL until this release. The publish
 workflow now refuses a manifest without the field, and CI pins it to
@@ -520,7 +636,7 @@ and the README credit now name UrbanKit Studio instead of an individual.
 ## 0.2.0 — 2026-09-02
 
 - **Owner lookups say so before the request when a county publishes no owner
-  name** (#540). `ownerFieldFrom()` decided a county had owners by matching
+  name**. `ownerFieldFrom()` decided a county had owners by matching
   the column name alone, so for the fourteen counties whose owner column
   exists and is empty, `list_counties` said "owner+APN", `find_county` and
   `get_parcel_endpoint` printed the field as usable, and `build_owner_query`
@@ -543,7 +659,7 @@ and the README credit now name UrbanKit Studio instead of an individual.
 
 ## 0.1.6 — 2026-08-06
 
-Published from this monorepo through the publish path #370 added (npm
+Published from the earlier private repository (npm
 `gitHead` aab7346). Dependencies at publish: `@modelcontextprotocol/sdk@^1.30.0`,
 `@urbankitstudio/atlas@^0.5.1`. The two changes below had been sitting under
 "Unreleased" since the 2026-07-20 reconciliation and shipped with it.
@@ -554,12 +670,12 @@ Published from this monorepo through the publish path #370 added (npm
 - `dependencies["@urbankitstudio/atlas"]` floor raised to `^0.5.1` to make
   explicit that this copy is verified against the King County / Will County
   data patch (was `^0.5.0` in the last publish, itself already stale at
-  `^0.4.0` in this monorepo's pre-reconciliation `package.json`).
+  `^0.4.0` in the earlier repository's pre-reconciliation `package.json`).
 
 ## 0.1.5 — 2026-07-03
 
 Published from the standalone `github.com/LEOyrh/mcp-atlas` repo (see the
-0.1.2 entry below — this monorepo's `packages/mcp-atlas/` was not the source
+0.1.2 entry below — the earlier private copy was not the source
 for this or any of the 0.1.2–0.1.5 publishes).
 
 - Catch-up to the atlas 0.5.0 resync (128 → 155 counties, all 50 states
@@ -580,10 +696,10 @@ for this or any of the 0.1.2–0.1.5 publishes).
 
 ## 0.1.2 — 2026-06-20
 
-- `repository` field repointed from this monorepo (`LEOyrh/urbankitstudio`,
-  directory `packages/mcp-atlas`) to the standalone `LEOyrh/mcp-atlas` repo.
+- `repository` field repointed from a private repository to the standalone
+  `LEOyrh/mcp-atlas` repo.
   All publishes from this point through 0.1.5 shipped from that standalone
-  repo, not this monorepo copy — the reason `packages/mcp-atlas/` here fell
+  repo, not the private copy — the reason the private copy fell
   behind (see the 2026-07-20 reconciliation note below).
 
 ## 0.1.1 — 2026-06-20
@@ -600,7 +716,7 @@ for this or any of the 0.1.2–0.1.5 publishes).
 
 ## Repo reconciliation — 2026-07-20
 
-`packages/mcp-atlas/package.json` in this monorepo had been stuck at 0.1.1
+The private copy's `package.json` had been stuck at 0.1.1
 (the last version actually published from here) while npm's `latest` had
 moved to 0.1.5, published from the standalone repo described in the 0.1.2
 entry above. Reconciled this copy to match what is live:
@@ -611,7 +727,7 @@ entry above. Reconciled this copy to match what is live:
   matching what 0.1.5 already shipped.
 - `dependencies["@urbankitstudio/atlas"]`: `^0.4.0` → `^0.5.1` (0.1.5 shipped
   with `^0.5.0`; this floor is raised further to the atlas patch published
-  alongside this reconciliation — see `packages/atlas/CHANGELOG.md` 0.5.1).
+  alongside this reconciliation — see the atlas package's CHANGELOG, 0.5.1).
 
 No new npm publish is required for this reconciliation by itself. Publish a
 new `mcp-atlas` version only if the `Unreleased` section above (the dynamic

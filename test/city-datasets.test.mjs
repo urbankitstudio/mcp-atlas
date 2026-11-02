@@ -7,8 +7,8 @@
  * break a test. The one shape the registry cannot supply today, an AMBIGUOUS
  * name, is built from fixtures with the package's own findCityIn.
  *
- * The wire keys asserted here are the hosted tool's (urbankitstudio api/mcp.ts
- * case "get_city_datasets"): snake_case, one level deep.
+ * The wire keys asserted here are the hosted tool's (get_city_datasets on
+ * urbankitstudio.com/api/mcp): snake_case, one level deep.
  *
  * Usage:  node --test test/city-datasets.test.mjs
  * Or via: npm run test:policy

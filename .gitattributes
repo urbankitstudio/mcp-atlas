@@ -9,6 +9,6 @@
 # have core.autocrlf=true. That is a property of one developer's global config,
 # not of this repository, and the next person to clone with autocrlf=false on
 # Windows would commit CRLF into publish.yml without a warning. This file makes
-# the guarantee belong to the repo. It matches the monorepo this package was
+# the guarantee belong to the repo. It matches the repository this package was
 # split out of, which has carried `* text=auto eol=lf` throughout.
 * text=auto eol=lf
