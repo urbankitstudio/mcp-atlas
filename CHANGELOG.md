@@ -6,6 +6,46 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.3.12 (2026-11-10)
+
+Atlas ^0.8.0, a dependency bump. The server's behaviour is unchanged. Under 0.x semver `^0.7`
+never accepts 0.8.x, so the range had to be raised for this server to receive the release.
+
+- **Twenty-two county records join the atlas.** Eight serve owner names: Baltimore City MD,
+  Effingham GA, Hubbard MN, Fairbanks North Star AK, Randolph AR, Creek OK, Jasper MO and
+  Muskegon MI. Five serve parcels with no owner name: Passaic NJ, Sussex NJ, Napa CA, Placer CA
+  and Tuolumne CA. Nine are recorded with no endpoint and a dated reason, and get the 0.3.8
+  coverage answer: DeKalb IN, White IN, Delaware IN, St. Joseph IN, Spalding GA, Shiawassee MI,
+  Lehigh PA, Butler PA and Lancaster SC. `find_county`, `get_parcel_endpoint` and
+  `build_owner_query` serve them with no change here.
+- **York SC owner names are served.** The county answered on 2026-11-03 that its parcel data is
+  open data for public use, so `build_owner_query` builds an owner query for York where 0.3.11
+  refused one. The county's `Data credit:` line now ends with the S.C. Code 30-2-50 notice
+  (no commercial solicitation directed to anyone in South Carolina), so the notice comes with
+  every `find_county`, `get_parcel_endpoint` and `build_owner_query` answer for York.
+- **Gwinnett GA is retired.** The county portal's licence limits its GIS data to internal use
+  by the recipient, so the atlas removed the endpoint. The three tools answer Gwinnett through
+  the coverage answer, which carries that reason.
+- **Licence credits are carried through.** Muskegon MI is served under the county's GIS Data
+  Download / Use Agreement, and its `Data credit:` line is the agreement's clause 8 notice word
+  for word. Baltimore City MD (CC BY 3.0), Creek OK (the county Assessor and INCOG, with INCOG's
+  disclaimer), Jasper MO (the City of Joplin's licence text) and Tuolumne CA (ODbL) print their
+  credits the same way.
+- **Brown WI moves to the county's new server and carries a confidential flag.** The layer flags
+  its confidential rows in `Confidential` (`1`, safe value `0`), and the 0.3.11 exclusion applies
+  to it with no change: the owner query ends with
+  `UPPER(CAST(Confidential AS VARCHAR(255))) NOT LIKE '%1%' AND Confidential IN (0)` and requests
+  the column. Brown is the first flagged layer outside Texas.
+- **Hamilton TN and Mobile AL repoint.** Hamilton TN moves to the county's Parcels MapServer on
+  gis.hamiltontn.gov, and Mobile AL to layer 1 of MCRC_Public_Parcels. Both have new field
+  names, and the owner queries follow them.
+- Totals: 537 counties, 521 endpoints (all live), 493 counties with an endpoint and 44 without.
+  `node scripts/sync-coverage.mjs` wrote them into README.md, the package.json description and
+  the server.json description.
+- Tests: the policy test's table of flagged endpoints and the smoke run both pin Brown WI's
+  whole clause, and the smoke run checks the Muskegon MI and York SC credits against the
+  installed atlas.
+
 ## 0.3.11 — 2026-10-25
 
 Atlas ^0.7.2, the confidential-owner exclusion, the publisher's data credit, and a publish step

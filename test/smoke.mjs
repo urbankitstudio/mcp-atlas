@@ -624,6 +624,10 @@ async function run() {
     ["CO", "Jefferson", "colorado"],
     ["MO", "Greene", "missouri"],
     ["CA", "Nevada", "california"],
+    // atlas 0.8.0: Muskegon's licence notice, and York's S.C. Code 30-2-50
+    // notice, which has to travel with the owner names it now serves.
+    ["MI", "Muskegon", "michigan"],
+    ["SC", "York", "south-carolina"],
   ];
   let creditId = 100;
   for (const [st, name, slug] of credited) {
@@ -677,7 +681,7 @@ async function run() {
 
   // Step: confidential owners. Atlas 0.6.43 names the column in which Harris,
   // Collin and Ector flag an owner whose record must not be shown (Texas Tax
-  // Code §25.025). The owner query the server hands out must exclude those rows and
+  // Code §25.025), and atlas 0.8.0 does the same for Brown WI. The owner query the server hands out must exclude those rows and
   // request the column, and get_parcel_endpoint must not print the atlas's own
   // sample owner query, only its own. The expected clauses are
   // spelled out here, whole and not derived, so a changed or weakened clause
@@ -689,6 +693,7 @@ async function run() {
       "UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%' AND CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%\u1e99%' AND confidential_flag IN ('          ', 'N         ', 'NNN       ', 'NNNNNNNNNN')",
       "confidential_flag",
       "(UPPER(owner_name_1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(confidential_flag AS VARCHAR(255))) NOT LIKE '%Y%' AND CAST(confidential_flag AS VARCHAR(255)) NOT LIKE '%\u1e99%' AND confidential_flag IN ('          ', 'N         ', 'NNN       ', 'NNNNNNNNNN')",
+      "TX",
     ],
     [
       "Collin",
@@ -696,6 +701,7 @@ async function run() {
       "UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\u1e97%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb05%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb06%' AND GIS_DBO_AD_Entity_confidential_ IN ('F')",
       "GIS_DBO_AD_Entity_confidential_",
       "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\u1e97%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb05%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb06%' AND GIS_DBO_AD_Entity_confidential_ IN ('F')",
+      "TX",
     ],
     // Ector is where the CAST matters: conf_flg is a small integer, and its
     // server answers the uncast `conf_flg NOT LIKE '%1%'` with an ArcGIS error
@@ -706,42 +712,53 @@ async function run() {
       "UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%' AND conf_flg IN (0)",
       "conf_flg",
       "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%' AND conf_flg IN (0)",
+      "TX",
+    ],
+    // Brown WI (atlas 0.8.0): the county writes "NOT AVAILABLE" in the owner
+    // cells of its flagged rows, and the flag keeps them withheld if it stops.
+    [
+      "Brown",
+      "wisconsin",
+      "UPPER(CAST(Confidential AS VARCHAR(255))) NOT LIKE '%1%' AND Confidential IN (0)",
+      "Confidential",
+      "(UPPER(OwnerNme1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(Confidential AS VARCHAR(255))) NOT LIKE '%1%' AND Confidential IN (0)",
+      "WI",
     ],
   ];
   let confId = 200;
-  for (const [name, slug, exclusion, field, smithWhere] of flaggedCounties) {
+  for (const [name, slug, exclusion, field, smithWhere, st] of flaggedCounties) {
     const record = atlas.byStateSlug.get(slug)?.counties.find((c) => c.county === name);
-    sendMessage(proc, confId++, "tools/call", { name: "build_owner_query", arguments: { state: "TX", county: name, owner_name: "SMITH" } });
+    sendMessage(proc, confId++, "tools/call", { name: "build_owner_query", arguments: { state: st, county: name, owner_name: "SMITH" } });
     const ownerText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
     const whereLine = ownerText.split("\n").find((l) => l.startsWith("WHERE clause: ")) ?? "";
-    assert(whereLine === `WHERE clause: ${smithWhere}`, `build_owner_query prints ${name} TX's whole WHERE clause, exclusion included`);
+    assert(whereLine === `WHERE clause: ${smithWhere}`, `build_owner_query prints ${name} ${st}'s whole WHERE clause, exclusion included`);
     const url = ownerText.split("\n").find((l) => l.startsWith("https://")) ?? "";
     const params = url ? new URL(url).searchParams : new URLSearchParams();
-    assert(params.get("where") === whereLine.slice("WHERE clause: ".length), `${name} TX's query URL carries the same WHERE clause`);
-    assert((params.get("outFields") ?? "").split(",").includes(field), `${name} TX's query URL requests ${field}`);
+    assert(params.get("where") === whereLine.slice("WHERE clause: ".length), `${name} ${st}'s query URL carries the same WHERE clause`);
+    assert((params.get("outFields") ?? "").split(",").includes(field), `${name} ${st}'s query URL requests ${field}`);
 
     // The whole line, pinned: the label, the clause and the instruction.
     const flagLine = `Confidential flag: ${exclusion} (the county flags confidential owners in ${field}; AND this into every query, and never show or pass on a flagged row)`;
-    assert(ownerText.split("\n").includes(flagLine), `build_owner_query prints ${name} TX's Confidential flag line`);
+    assert(ownerText.split("\n").includes(flagLine), `build_owner_query prints ${name} ${st}'s Confidential flag line`);
 
-    sendMessage(proc, confId++, "tools/call", { name: "get_parcel_endpoint", arguments: { state: "TX", county: name } });
+    sendMessage(proc, confId++, "tools/call", { name: "get_parcel_endpoint", arguments: { state: st, county: name } });
     const epText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-    assert(epText.split("\n").includes(`  ${flagLine}`), `get_parcel_endpoint prints ${name} TX's Confidential flag line`);
+    assert(epText.split("\n").includes(`  ${flagLine}`), `get_parcel_endpoint prints ${name} ${st}'s Confidential flag line`);
     const atlasSample = record?.endpoints[0]?.sampleQuery ?? "";
-    assert(atlasSample.length > 0 && !epText.includes(atlasSample), `get_parcel_endpoint withholds ${name} TX's unfiltered atlas sample query`);
+    assert(atlasSample.length > 0 && !epText.includes(atlasSample), `get_parcel_endpoint withholds ${name} ${st}'s unfiltered atlas sample query`);
     // The sample that replaces it is the build_owner_query helper's own.
     const epLines = epText.split("\n");
     const sample = (epLines[epLines.findIndex((l) => l.startsWith("  Sample owner query")) + 1] ?? "").trim();
     const sampleParams = sample.startsWith("https://") ? new URL(sample).searchParams : new URLSearchParams();
-    assert(sampleParams.get("where") === smithWhere, `get_parcel_endpoint's sample owner query for ${name} TX carries exactly the whole where`);
+    assert(sampleParams.get("where") === smithWhere, `get_parcel_endpoint's sample owner query for ${name} ${st} carries exactly the whole where`);
     assert(
       (sampleParams.get("outFields") ?? "").split(",").includes(field),
-      `get_parcel_endpoint's sample owner query for ${name} TX requests ${field}`,
+      `get_parcel_endpoint's sample owner query for ${name} ${st} requests ${field}`,
     );
 
-    sendMessage(proc, confId++, "tools/call", { name: "find_county", arguments: { query: `${name} TX` } });
+    sendMessage(proc, confId++, "tools/call", { name: "find_county", arguments: { query: `${name} ${st}` } });
     const findText = (await readResponse(proc)).result?.content?.[0]?.text ?? "";
-    assert(findText.split("\n").includes(`  ${flagLine}`), `find_county prints ${name} TX's Confidential flag line`);
+    assert(findText.split("\n").includes(`  ${flagLine}`), `find_county prints ${name} ${st}'s Confidential flag line`);
   }
   for (const [tool, args] of [
     ["find_county", { query: "Kane IL" }],

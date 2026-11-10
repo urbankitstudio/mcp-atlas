@@ -38,7 +38,7 @@
  * Likewise `confidential` is returned whenever the endpoint carries the
  * atlas's `confidentialFlag` (0.6.43): the county's own column marking an
  * owner whose record must not be shown (Texas Tax Code §25.025; Harris,
- * Collin and Ector). ownerWhereClause ANDs its exclusion after the owner
+ * Collin and Ector, and since atlas 0.8.0 Brown WI). ownerWhereClause ANDs its exclusion after the owner
  * match, and buildArcgisOwnerQuery requests the column. A flag that is
  * present but malformed comes back as `{ kind: "incomplete" }`, never null.
  */

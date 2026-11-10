@@ -4,11 +4,11 @@
 
 [![mcp-atlas MCP server](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas/badges/card.svg)](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas)
 
-Query the parcel ArcGIS REST endpoints of 515 counties across 51 US states (50 states plus DC), 509 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
+Query the parcel ArcGIS REST endpoints of 537 counties across 51 US states (50 states plus DC), 521 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 515 counties across 51 US states (50 states plus DC), 509 endpoints, 509 of them live (atlas 0.7.2). 481 of the counties have an endpoint; for the other 34 the atlas records why not (see "A county we cannot serve" below).
+**Coverage:** 537 counties across 51 US states (50 states plus DC), 521 endpoints, 521 of them live (atlas 0.8.0). 493 of the counties have an endpoint; for the other 44 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
@@ -182,7 +182,9 @@ is ANDed in front, as
 Some layers publish an owner whose record must not be shown, and flag it in a
 column beside the owner: Texas Tax Code §25.025 lets peace officers, judges,
 family-violence victims and others keep their home address confidential, and
-Harris and Collin mark those accounts (Ector carries a forward guess). On such
+Harris and Collin mark those accounts (Ector carries a forward guess). Brown
+County WI flags its confidential rows in `Confidential` (`1`, safe value `0`,
+atlas 0.8.0) and gets the same exclusion. On such
 a layer the query excludes flagged rows, as
 `(…) AND UPPER(CAST(flag AS VARCHAR(255))) NOT LIKE '%Y%'`, a contains test
 for every flag value (Harris packs one flag per ownership slot, `YNNNNNNNNN`).

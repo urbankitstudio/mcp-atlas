@@ -313,6 +313,10 @@ test("every flagged endpoint in the installed atlas gets the exclusion in its ow
       "(UPPER(GIS_DBO_AD_Entity_file_as_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255))) NOT LIKE '%T%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\u1e97%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb05%' AND CAST(GIS_DBO_AD_Entity_confidential_ AS VARCHAR(255)) NOT LIKE '%\ufb06%' AND GIS_DBO_AD_Entity_confidential_ IN ('F')",
     "tx-ector":
       "(UPPER(owner_name) LIKE UPPER('%SMITH%')) AND UPPER(CAST(conf_flg AS VARCHAR(255))) NOT LIKE '%1%' AND conf_flg IN (0)",
+    // atlas 0.8.0: the county writes "NOT AVAILABLE" in the owner cells of its
+    // flagged rows, and the flag keeps them withheld if it stops.
+    "wi-brown":
+      "(UPPER(OwnerNme1) LIKE UPPER('%SMITH%')) AND UPPER(CAST(Confidential AS VARCHAR(255))) NOT LIKE '%1%' AND Confidential IN (0)",
   };
   const seen = [];
   for (const stateFile of atlas.byStateSlug.values()) {
