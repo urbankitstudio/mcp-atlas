@@ -28,6 +28,7 @@ import {
   countyHasEndpoint,
   coverageAnswer,
   coverageAnswerText,
+  queryFieldName,
 } from "@urbankitstudio/atlas";
 import type { CountyRecord, CountyRequestRef } from "@urbankitstudio/atlas";
 import {
@@ -36,6 +37,7 @@ import {
   ownerCoverageLabel,
   buildArcgisOwnerQuery,
   ownerQueryRowsNote,
+  ownerTableNotes,
   escapeSqlLiteral,
   confidentialLine,
   parcelEndpointSamples,
@@ -135,7 +137,7 @@ function formatCountySummary(c: CountyRecord): string {
         const owner = ownerSearchPolicy(c, ep);
         const searchable = ep.searchFields
           .filter((sf) => sf.searchable)
-          .map((sf) => `${sf.name} (${sf.label})`)
+          .map((sf) => `${queryFieldName(sf)} (${sf.label})`)
           .join(", ");
         const scope = scopeLine(owner);
         const confidential = confidentialLine(owner);
@@ -448,7 +450,7 @@ server.registerTool(
       lines.push("  Searchable fields:");
       ep.searchFields
         .filter((sf) => sf.searchable)
-        .forEach((sf) => lines.push(`    ${sf.name.padEnd(20)} – ${sf.label}`));
+        .forEach((sf) => lines.push(`    ${queryFieldName(sf).padEnd(20)} – ${sf.label}`));
       lines.push("");
       lines.push(`  ${ownerLine(owner)}`);
       // parcelEndpointSamples withholds the atlas's sample on any flagged
@@ -464,8 +466,10 @@ server.registerTool(
         lines.push(`    ${samples.owner}`);
       }
       lines.push("");
+      // The link opens the LAYER. An owner column that sits on the county's
+      // owner table is no column of it, so it is not passed as the hint.
       lines.push(
-        `  UrbanKit deep-link: https://urbankitstudio.com/tools/parcel-lookup?endpoint=${encodeURIComponent(ep.url)}${ownerField ? `&fieldHint=${ownerField}` : ""}`
+        `  UrbanKit deep-link: https://urbankitstudio.com/tools/parcel-lookup?endpoint=${encodeURIComponent(ep.url)}${ownerField && !owner.join ? `&fieldHint=${ownerField}` : ""}`
       );
       if (i < countyRecord.endpoints.length - 1) lines.push("\n" + "-".repeat(40));
     });
@@ -561,7 +565,8 @@ server.registerTool(
       results.push(
         [
           `County:      ${countyRecord.county}, ${countyRecord.stateName}`,
-          `Owner field: ${ownerField}`,
+          // "Owner field: <column>", and on an owner table where that column is.
+          ownerLine(owner),
           ...(scope ? [scope] : []),
           ...(confidential ? [confidential] : []),
           `WHERE clause: ${where}`,
@@ -571,6 +576,9 @@ server.registerTool(
           ``,
           `Notes:`,
           `  - ${ownerQueryRowsNote(ep)}`,
+          // On an owner table: what the rows are and how to read them. The
+          // caller fetches the URL, so the reading rules travel with it.
+          ...ownerTableNotes(owner, ep).map((note) => `  - ${note}`),
           ...(owner.confidential?.kind === "exclude"
             ? [
                 `  - Owners the county flags confidential are excluded, and a row with no flag recorded (NULL) counts as flagged. ${owner.confidential.field} comes back with each row: if one is flagged, do not show or pass it on`,

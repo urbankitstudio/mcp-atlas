@@ -6,6 +6,59 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.0 (2026-11-11)
+
+Owner search on counties whose owners live in a joined table, and atlas ^0.9.0. Under 0.x
+semver `^0.8` never accepts 0.9.x, so the range had to be raised for this server to receive
+the release.
+
+- **Owner search reaches a county's owner table.** Some counties publish their parcel polygons
+  on one layer and keep the owners in a separate table of the same service, joined to the
+  parcels on a key. Atlas 0.9.0 records that as `ownerJoin` on the endpoint. The parcel layer
+  of such a record documents no owner column, so 0.3.12 would answer "PIN-only lookup" and
+  refuse an owner search although the owners are one table away. 0.4.0 finds the owner column
+  on the table: `list_counties` reads the county as `owner+APN`, `find_county` and
+  `get_parcel_endpoint` print the owner field with the table it sits in, and
+  `build_owner_query` returns a query against the table. Sussex County DE is the first such
+  county and arrives in atlas 0.9.1. No record in atlas 0.9.0 carries a join, so no county's
+  answer changes until then.
+- **The table query.** It is an attribute query and nothing else: the usual
+  `UPPER(field) LIKE UPPER('%NAME%')` on the table's owner column, the parcel key and the
+  table's owner and mailing columns in `outFields`, `orderByFields` set to the record's order
+  column so that pages read with `resultOffset` come in one order, and 25 rows a page. It never
+  carries a geometry parameter: a table has no geometry and ignores one.
+- **The reading rules travel with the URL.** This server builds the URL and does not fetch it,
+  so the `build_owner_query` notes say how to read the rows. Every row must hold the searched
+  name in the owner column; if one does not, the table did not apply the where clause, and the
+  whole response is discarded. Rows of one parcel key that carry the same owner and mailing
+  values are one ownership record. A key left with more different rows than the record's
+  `maxRowsPerKey` (more than one, when the record does not declare several rows per key) has no
+  owner you can state. `readOwnerJoinRows` in `dist/owner-join.js` holds the same rules in
+  code, for a caller that reads the rows with this package.
+- **A join is used only where the atlas's validator accepts it.** The validator refuses an
+  `ownerJoin` beside a county that withholds owner or mailing columns, `scopeWhere`,
+  `sharedService`, a `confidentialFlag`, `supportsPagination: false`,
+  `attributeSearch: "unsupported"` or any `wireName`. The server holds the same rule at run
+  time: such a record is served as its plain layer, and its table is never named or asked.
+- **Field names go out through the atlas's `queryFieldName`** (`wireName` where a record
+  carries one, else `name`): the owner column in the where clause, `outFields`, and the field
+  lists `find_county` and `get_parcel_endpoint` print. No record carries a `wireName` yet, so
+  every name printed today is unchanged.
+- **No tool description changed**, and a record with no join gets the request and the answer
+  text 0.3.12 gave it. On a joined record the `UrbanKit deep-link` carries no `fieldHint`: the
+  link opens the layer, which has no owner column.
+- The range also takes in atlas 0.8.1: Sullivan IN is recorded with no endpoint and gets the
+  coverage answer, and the notes of 45 older records no longer quote an owner from a sample
+  row, which `find_county` prints as the `Notes:` line.
+- Totals: 538 counties, 521 endpoints (all live), 493 counties with an endpoint and 45 without.
+  `node scripts/sync-coverage.mjs` wrote them into README.md, the package.json description and
+  the server.json description.
+- Tests: `test/owner-join.test.mjs`, on fixture records shaped like Sussex (the bundled atlas
+  has no join record yet). It covers the policy, the table request, the owner echo, the dedupe
+  and the row cap, every refused combination served as its plain layer, and the join-less
+  request shape across the installed atlas. It also drives the built server over stdio with
+  the fixtures preloaded, so the tool handlers themselves are exercised on a joined record.
+
 ## 0.3.12 (2026-11-10)
 
 Atlas ^0.8.0, a dependency bump. The server's behaviour is unchanged. Under 0.x semver `^0.7`
