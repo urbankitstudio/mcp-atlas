@@ -308,6 +308,12 @@ test("dedupe: a zero-width space or a doubled inner space does not make a second
   assert.equal(two.rows.length, 2);
 });
 
+test("dedupe: a format character that is not default-ignorable is invisible too (U+0600)", () => {
+  const one = keyRows([bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE\u0600", "1 EXAMPLE ST")]);
+  assert.equal(one.state, "joined");
+  assert.deepEqual(ownerNames(one), ["SMITH EXAMPLE"]);
+});
+
 test("dedupe: the owner echo is accent-insensitive, the de-duplication is not: two spellings, two rows", () => {
   const one = keyRows([bare("1-00", "PE\u00d1A EXAMPLE", "1 EXAMPLE ST"), bare("1-00", "PENA EXAMPLE", "1 EXAMPLE ST")], "PENA");
   assert.equal(one.state, "joined", "both rows pass the echo of PENA");
@@ -416,6 +422,19 @@ test("a matching row with no usable key is tied to no parcel: counted, not serve
   assert.deepEqual([...result.byKey.keys()], ["1-00", "2-00", "300"], "a key is trimmed, nothing else");
 });
 
+test("a key of only invisible characters is blank, as the UrbanKit Studio engine reads it: counted, not served", () => {
+  const result = read([
+    row("1-00", "SMITH EXAMPLE A"),
+    row("\u200b", "SMITH EXAMPLE B"),
+    row("\u0000", "SMITH EXAMPLE C"),
+    row("\u00ad", "SMITH EXAMPLE D"),
+    row("\u2800", "SMITH EXAMPLE E"),
+  ]);
+  assert.equal(result.ok, true);
+  assert.equal(result.unkeyed, 4);
+  assert.deepEqual([...result.byKey.keys()], ["1-00"]);
+});
+
 // ---------------------------------------------------------------------------
 // When a join may not be used: the validator's J8, held again at run time
 // ---------------------------------------------------------------------------
@@ -499,7 +518,8 @@ test("the notes under a table query give the reading rules readOwnerJoinRows hol
   assert.deepEqual(ownerTableNotes(p, ep), [
     `The rows come from the county's owner table, not the parcel layer: each is one ownership record with no geometry, and its PIN is the parcel's Name on the parcel layer ${LAYER_URL}`,
     "Check every row before using any: each must hold the searched name in FULLNAME. If one does not, the table did not apply the where clause, so discard the whole response and show none of its owners",
-    "One PIN can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than 3 different rows has no owner you can state: show none of its rows",
+    "One PIN can hold several rows: de-duplicate them by the values you read, compared without regard to letter case, invisible characters or runs of whitespace (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than 3 different rows has no owner you can state: show none of its rows",
+    "A row whose PIN is blank, or holds only invisible characters, belongs to no parcel: show none of it",
     "For more rows add &resultOffset=25 (then 50, and so on) and keep orderByFields=OBJECTID_1, which holds the pages in one order",
   ]);
   // The numbers and names in the notes are the query's and the reader's own.
@@ -512,7 +532,7 @@ test("the notes under a table query give the reading rules readOwnerJoinRows hol
   const single = joinedEndpoint({ ownerJoin: ownerTable({ multiple: undefined, maxRowsPerKey: undefined }) });
   assert.equal(
     ownerTableNotes(ownerSearchPolicy({}, single), single)[2],
-    "One PIN can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than one different row has no single owner: show none of its rows",
+    "One PIN can hold several rows: de-duplicate them by the values you read, compared without regard to letter case, invisible characters or runs of whitespace (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than one different row has no single owner: show none of its rows",
   );
 });
 
@@ -665,7 +685,7 @@ test("stdio server: build_owner_query on a joined county returns the table query
   const ep = joinedEndpoint();
   const p = ownerSearchPolicy({}, ep);
   const notes = ownerTableNotes(p, ep);
-  assert.equal(notes.length, 4, "fixture: the notes exist");
+  assert.equal(notes.length, 5, "fixture: the notes exist");
   await withServer(async (call) => {
     const text = await call("build_owner_query", { state: "DE", county: JOINED_COUNTY_NAME, owner_name: "SMITH" });
     const lines = text.split("\n");

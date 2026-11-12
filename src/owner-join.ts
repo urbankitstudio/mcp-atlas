@@ -201,13 +201,16 @@ export function verifyOwnerEcho(rows: readonly OwnerJoinRow[], ownerField: strin
   return rows.every((row) => ownerCellMatches(row[ownerField], ownerQuery));
 }
 
-/** A key as both sides compare it: trimmed, nothing else. Null for a blank
- *  cell or a value that is neither text nor a safe integer (JSON.parse has
- *  already rounded an integer past 2^53, so its digits can be another parcel's). */
+/** A key as both sides compare it: trimmed, nothing else. Null for a value
+ *  that is neither text nor a safe integer (JSON.parse has already rounded an
+ *  integer past 2^53, so its digits can be another parcel's), and for a visibly
+ *  blank one: a key of only zero-width, control or filler characters is blank,
+ *  as the UrbanKit Studio engine's normalizeJoinKey reads it. */
 function joinKeyOf(value: unknown): string | null {
   if (typeof value !== "string" && !(typeof value === "number" && Number.isSafeInteger(value))) return null;
   const key = String(value).trim();
-  return key === "" ? null : key;
+  // ANCHOR owner-join-key-blank
+  return visibleText(key) === "" ? null : key;
 }
 
 /** One returned feature cut to the columns that were asked for. Anything else
@@ -291,11 +294,14 @@ function subsumes(wide: ReadonlyArray<string | null>, narrow: ReadonlyArray<stri
  * Kept rows are distinct, so two rows never subsume each other and the filter
  * cannot drop every row of a key. The row ceiling counts what is left.
  *
- * The one difference from the UrbanKit Studio engine: it reads cells through the
+ * Two differences from the UrbanKit Studio engine. It reads cells through the
  * endpoint's roles (owner, site address, mailing) and treats a placeholder owner
- * ("UNKNOWN", "N/A") as no owner, while this compares the raw content columns.
- * Every row here has passed the owner echo, so a placeholder owner can only
- * appear when the search is for the placeholder itself.
+ * ("UNKNOWN", "N/A") as no owner, while this compares the raw content columns;
+ * every row here has passed the owner echo, so a placeholder owner can only
+ * appear when the search is for the placeholder itself. And it tests a cell for
+ * blankness before NFKC, so a cell that NFKC turns into nothing visible (a lone
+ * spacing accent such as U+00B4 becomes a space and a combining mark) is an empty
+ * value there and null here. Keys follow the engine's blank rule exactly.
  */
 function dedupeByContent(rows: readonly OwnerJoinRow[], content: readonly string[]): OwnerJoinRow[] {
   const seen = new Set<string>();
@@ -384,10 +390,11 @@ export function ownerJoinNotes(join: OwnerJoin, ownerField: string, layerUrl: st
   return [
     `The rows come from the county's owner table, not the parcel layer: each is one ownership record with no geometry, and its ${join.key} is the parcel's ${join.parcelKey} on the parcel layer ${layerUrl}`,
     `Check every row before using any: each must hold the searched name in ${ownerField}. If one does not, the table did not apply the where clause, so discard the whole response and show none of its owners`,
-    `One ${join.key} can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the ${join.key} already carries (the same owner once with and once without a mailing line is one record). ` +
+    `One ${join.key} can hold several rows: de-duplicate them by the values you read, compared without regard to letter case, invisible characters or runs of whitespace (never by a row label, which is not unique), and drop a row whose values another row of the ${join.key} already carries (the same owner once with and once without a mailing line is one record). ` +
       (cap === 1
         ? `A ${join.key} left with more than one different row has no single owner: show none of its rows`
         : `A ${join.key} left with more than ${cap} different rows has no owner you can state: show none of its rows`),
+    `A row whose ${join.key} is blank, or holds only invisible characters, belongs to no parcel: show none of it`,
     `For more rows add &resultOffset=25 (then 50, and so on) and keep orderByFields=${join.orderField}, which holds the pages in one order`,
   ];
 }

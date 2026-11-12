@@ -50,10 +50,13 @@ the release.
   rows. The row kept is returned as the county wrote it. A key left with more different rows
   than the record's `maxRowsPerKey` (more than one, when the record does not declare several
   rows per key) has no owner you can state; the ceiling counts the rows left after the
-  de-duplication. This is the rule of the UrbanKit Studio engine (`dedupeJoinRows`); the one
-  difference is that the engine reads cells through the endpoint's roles and treats a
-  placeholder owner such as "UNKNOWN" as no owner, while this compares the raw content
-  columns, and every row here has passed the owner echo. `readOwnerJoinRows` in
+  de-duplication. A row whose key is blank, or holds only invisible characters, belongs to
+  no parcel and is not served. This is the rule of the UrbanKit Studio engine
+  (`dedupeJoinRows`), with two differences: the engine reads cells through the endpoint's
+  roles and treats a placeholder owner such as "UNKNOWN" as no owner, while this compares
+  the raw content columns (every row here has passed the owner echo); and a cell that NFKC
+  turns into nothing visible, such as a lone spacing accent, is null here and an empty
+  value there. `readOwnerJoinRows` in
   `dist/owner-join.js` holds the same rules in code, for a caller that reads the rows with
   this package.
 - **A join is used only where the atlas's validator accepts it.** The validator refuses an

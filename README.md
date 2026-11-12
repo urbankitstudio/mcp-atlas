@@ -195,8 +195,10 @@ by the owner and mailing values (accents, case and invisible characters do not
 make a second row, though "PEÑA" and "PENA" stay two), drop a row whose
 values another row of the key already carries (the same owner once with and
 once without a mailing line is one record), and state no owner for a key left
-with more different rows than the record allows. These are the UrbanKit Studio
-engine's own rules. `readOwnerJoinRows` in `dist/owner-join.js` holds the same
+with more different rows than the record allows, or for a row whose key is
+blank or only invisible characters. These follow the UrbanKit Studio engine's
+rules, with the two small differences the CHANGELOG names.
+`readOwnerJoinRows` in `dist/owner-join.js` holds the same
 rules in code. A join is used only where
 the atlas's validator accepts one: beside a withheld owner or mailing column,
 a scope, a shared service, a confidential flag, a layer that does not page or
