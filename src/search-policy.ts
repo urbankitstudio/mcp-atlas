@@ -28,7 +28,13 @@
  *      out the confidential owners the flag exists to keep out.
  *   5. offered: the first owner-name column that is searchable (the column
  *      test is the UKS classifier's; see OWNER_RE below).
- *   6. no_owner_column: the layer documents no owner column at all.
+ *   6. the owner table: the layer documents no owner column, but the endpoint
+ *      carries a usable `ownerJoin` (atlas 0.9.0; ./owner-join.ts decides
+ *      "usable"). The same column test runs on the table's fields: offered
+ *      with `join` set, so the query goes to the table, or owner_unsearchable
+ *      when the table marks every owner column unsearchable. A join that may
+ *      not be used is ignored, and the record is its plain layer.
+ *   7. no_owner_column: neither the layer nor a usable table documents one.
  *
  * Separately from the branch, `scopeWhere` is returned whenever the registry
  * carries one. A shared statewide or regional layer holds every county's rows
@@ -43,17 +49,26 @@
  * present but malformed comes back as `{ kind: "incomplete" }`, never null.
  */
 
-import { isReviewedUnservable, offersPagination, reviewedCapability } from "@urbankitstudio/atlas";
-import type { ConfidentialFlag, CountyRecord, EndpointRecord } from "@urbankitstudio/atlas";
+import { isReviewedUnservable, offersPagination, queryFieldName, reviewedCapability } from "@urbankitstudio/atlas";
+import type { ConfidentialFlag, CountyRecord, EndpointRecord, OwnerJoin } from "@urbankitstudio/atlas";
+import { ownerJoinNotes, ownerJoinOutFields, ownerJoinTableUrl, usableOwnerJoin } from "./owner-join.js";
 
 /**
  * The endpoint fields this policy reads, as @urbankitstudio/atlas declares them
  * (`scopeWhere` and `attributeSearch` since 0.6.11; before that this file
- * carried a local copy of the two; `confidentialFlag` since 0.6.43).
+ * carried a local copy of the two; `confidentialFlag` since 0.6.43; `ownerJoin`
+ * since 0.9.0, with `sharedService` and `supportsPagination`, which decide
+ * whether a join may be used).
  */
 export type EndpointSearchPolicyFields = Pick<
   EndpointRecord,
-  "searchFields" | "scopeWhere" | "attributeSearch" | "confidentialFlag"
+  | "searchFields"
+  | "scopeWhere"
+  | "attributeSearch"
+  | "confidentialFlag"
+  | "ownerJoin"
+  | "sharedService"
+  | "supportsPagination"
 >;
 
 type CountyPolicyFields = Pick<CountyRecord, "capabilityOverrides">;
@@ -80,6 +95,12 @@ export interface OwnerSearchPolicy {
    * endpoint carries no flag at all, so a truthy check means "flagged".
    */
   confidential: ConfidentialPolicy | null;
+  /**
+   * The county's owner table, when the owner column is the table's and not the
+   * layer's: the owner query then goes to `join.url`. Null on a plain layer,
+   * and on a record whose join may not be used.
+   */
+  join: OwnerJoin | null;
 }
 
 export interface ConfidentialExclusion {
@@ -326,12 +347,13 @@ export function ownerSearchPolicy(
 ): OwnerSearchPolicy {
   const scopeWhere = endpoint.scopeWhere?.trim() || null;
   const confidential = confidentialExclusion(endpoint.confidentialFlag);
-  const refuse = (kind: OwnerSearchKind, reason: string | null): OwnerSearchPolicy => ({
+  const refuse = (kind: OwnerSearchKind, reason: string | null, join: OwnerJoin | null = null): OwnerSearchPolicy => ({
     kind,
     field: null,
     reason,
     scopeWhere,
     confidential,
+    join,
   });
 
   if (isReviewedUnservable(county, "owner_name")) {
@@ -349,8 +371,19 @@ export function ownerSearchPolicy(
   if (usable && confidential?.kind === "incomplete") {
     return refuse("confidential_flag_incomplete", incompleteFlagReason(confidential));
   }
-  if (usable) return { kind: "offered", field: usable.name, reason: null, scopeWhere, confidential };
+  // The column to SEND: the atlas's queryFieldName, which is `name` on every
+  // record today and the qualified `wireName` once a record carries one.
+  if (usable) return { kind: "offered", field: queryFieldName(usable), reason: null, scopeWhere, confidential, join: null };
   if (named.length > 0) return refuse("owner_unsearchable", OWNER_UNSEARCHABLE_REASON);
+  // The layer documents no owner column. Its owners may be one table away: a
+  // usable join carries no scope and no flag, so both are null from here on.
+  const join = usableOwnerJoin(county, endpoint);
+  if (join) {
+    const onTable = join.fields.filter(isOwnerNameColumn);
+    const searchable = onTable.find((sf) => sf.searchable !== false);
+    if (searchable) return { kind: "offered", field: searchable.name, reason: null, scopeWhere, confidential, join };
+    if (onTable.length > 0) return refuse("owner_unsearchable", OWNER_UNSEARCHABLE_REASON, join);
+  }
   return refuse("no_owner_column", null);
 }
 
@@ -438,6 +471,13 @@ export function ownerCoverageLabel(
  * layer flagged `supportsPagination: false` answers that parameter with HTTP 200
  * and a 400 error body instead of rows. The rule is the package's
  * `offersPagination`, read here, never re-derived.
+ *
+ * When the owner column is on the county's owner table (`owner.join`), the
+ * query goes to the TABLE, never to the layer, which has no such column. It is
+ * an attribute query and nothing else: the where clause, the parcel key and
+ * the table's content columns, and no geometry parameter, which a table
+ * ignores. `orderByFields` rides on the first page too, so a caller who adds
+ * `resultOffset` reads the pages in one order.
  */
 export function buildArcgisOwnerQuery(
   endpoint: Pick<EndpointRecord, "url" | "searchFields" | "supportsPagination">,
@@ -448,7 +488,20 @@ export function buildArcgisOwnerQuery(
   const where = encodeURIComponent(
     ownerWhereClause(owner.field, owner.scopeWhere, ownerQuery, owner.confidential),
   );
-  const fields = endpoint.searchFields.filter((sf) => sf.searchable).map((sf) => sf.name);
+  if (owner.join) {
+    // ANCHOR owner-join-table-url
+    const table = ownerJoinTableUrl(owner.join);
+    return (
+      `${table}/query` +
+      `?where=${where}` +
+      `&outFields=${ownerJoinOutFields(owner.join, owner.field).join(",")}` +
+      `&orderByFields=${encodeURIComponent(owner.join.orderField)}` +
+      `&returnGeometry=false` +
+      `&f=json` +
+      (offersPagination(endpoint) ? `&resultRecordCount=25` : "")
+    );
+  }
+  const fields = endpoint.searchFields.filter((sf) => sf.searchable).map(queryFieldName);
   // The flag column comes back with the owner, as the atlas asks, so whoever
   // reads the rows can drop a flagged one as well.
   if (owner.confidential?.kind === "exclude" && !fields.includes(owner.confidential.field)) {
@@ -471,7 +524,15 @@ export function buildArcgisOwnerQuery(
  * incomplete flag, gives way to "do not read owner fields here".
  */
 export function ownerLine(owner: OwnerSearchPolicy): string {
+  // On an owner table the column is not on the layer whose URL is printed
+  // above this line, so the line says where it is and how the two tie.
+  if (owner.field && owner.join) {
+    return `Owner field: ${owner.field} (in the county's owner table ${ownerJoinTableUrl(owner.join)}, not on this layer; the table's ${owner.join.key} is this layer's ${owner.join.parcelKey})`;
+  }
   if (owner.field) return `Owner field: ${owner.field}`;
+  if (owner.kind === "owner_unsearchable" && owner.join) {
+    return "Owner field: not searchable by name (column exists in the county's owner table, not on this layer; a parcel-id or location query here returns no owner)";
+  }
   const c = owner.confidential;
   if (owner.kind === "attribute_search_unsupported") {
     const base = `Attribute search: not offered (location queries only) - ${owner.reason}`;
@@ -517,6 +578,13 @@ export function ownerRefusal(owner: OwnerSearchPolicy, place: string): string {
     }
     case "owner_unsearchable": {
       // The owner IS published; only a name search on it is unsupported.
+      if (owner.join) {
+        // The column is on the owner table, so the parcel-id and location
+        // reads the plain advice names would return no owner there. No other
+        // read is advised.
+        refusal = `OWNER COLUMN NOT SEARCHABLE BY NAME for ${place}: ${owner.reason}\nThe owner column is in the county's owner table (${ownerJoinTableUrl(owner.join)}), not on the parcel layer, so a parcel-id or location query on the layer returns no owner. No owner query is offered here.`;
+        break;
+      }
       const advice = !c
         ? "Use a parcel-id or location query instead; either returns the owner of the matching parcel."
         : c.kind === "incomplete"
@@ -553,6 +621,14 @@ export function parcelEndpointSamples(
     atlas: endpoint.sampleQuery && owner.confidential === null ? endpoint.sampleQuery : null,
     owner: owner.field ? buildArcgisOwnerQuery(endpoint, owner, "SMITH") : null,
   };
+}
+
+/**
+ * The build_owner_query notes a query against an owner table adds: what its
+ * rows are and how to read them (./owner-join.ts). None on a plain layer.
+ */
+export function ownerTableNotes(owner: OwnerSearchPolicy, endpoint: Pick<EndpointRecord, "url">): string[] {
+  return owner.field && owner.join ? ownerJoinNotes(owner.join, owner.field, endpoint.url) : [];
 }
 
 /** The build_owner_query note on how many rows the query returns. */
