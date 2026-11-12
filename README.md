@@ -4,11 +4,11 @@
 
 [![mcp-atlas MCP server](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas/badges/card.svg)](https://glama.ai/mcp/servers/urbankitstudio/mcp-atlas)
 
-Query the parcel ArcGIS REST endpoints of 538 counties across 51 US states (50 states plus DC), 521 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
+Query the parcel ArcGIS REST endpoints of 539 counties across 51 US states (50 states plus DC), 522 endpoints total, for owner, APN and address lookup via the Model Context Protocol (MCP).
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 538 counties across 51 US states (50 states plus DC), 521 endpoints, 521 of them live (atlas 0.9.0). 493 of the counties have an endpoint; for the other 45 the atlas records why not (see "A county we cannot serve" below).
+**Coverage:** 539 counties across 51 US states (50 states plus DC), 522 endpoints, 522 of them live (atlas 0.9.1). 494 of the counties have an endpoint; for the other 45 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
@@ -183,17 +183,21 @@ is ANDed in front, as
 
 Some counties keep their owners in a separate table of the parcel service,
 joined to the parcel layer on a key (the atlas's `ownerJoin`; Sussex County DE
-is the first, arriving in atlas 0.9.1). There the query goes to the table, not
+is the first, since atlas 0.9.1). There the query goes to the table, not
 the layer: the same `UPPER(field) LIKE …` on the table's owner column, with the
-parcel key and the owner and mailing columns in `outFields`, `orderByFields`
+parcel key and the searchable owner and mailing columns in `outFields`, `orderByFields`
 so that pages read with `resultOffset` come in one order, and no geometry
 parameter, which a table ignores. The rows are ownership records, one or more
 per parcel, and the notes under the URL say how to read them: discard the
 whole response if any row does not hold the searched name in the owner column
-(the table did not apply the where clause), treat rows of one key with the
-same owner and mailing values as one record, and state no owner for a key left
-with more different rows than the record allows. `readOwnerJoinRows` in
-`dist/owner-join.js` holds the same rules in code. A join is used only where
+(the table did not apply the where clause), de-duplicate the rows of one key
+by the owner and mailing values (accents, case and invisible characters do not
+make a second row, though "PEÑA" and "PENA" stay two), drop a row whose
+values another row of the key already carries (the same owner once with and
+once without a mailing line is one record), and state no owner for a key left
+with more different rows than the record allows. These are the UrbanKit Studio
+engine's own rules. `readOwnerJoinRows` in `dist/owner-join.js` holds the same
+rules in code. A join is used only where
 the atlas's validator accepts one: beside a withheld owner or mailing column,
 a scope, a shared service, a confidential flag, a layer that does not page or
 takes no attribute search, or a `wireName`, the record is served as its plain

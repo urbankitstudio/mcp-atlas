@@ -114,9 +114,10 @@ export function ownerJoinTableUrl(join: OwnerJoin): string {
 
 /**
  * The table columns that carry what a row serves: every documented searchable
- * column except the key, the row label and the order column. The registry
- * documents the key, the row label and the owner columns on a table, so this
- * is its owner name and mailing columns. The row label (`rowIdField`) is left
+ * column except the key, the row label and the order column, the same
+ * searchable-only rule build_owner_query applies to a parcel layer. On Sussex DE
+ * that is the owner name alone: the record marks its mailing columns
+ * `searchable: false`, so they are never requested. The row label (`rowIdField`) is left
  * out on purpose: it is not unique, and two rows that differ only by it are
  * one ownership record.
  */
@@ -222,22 +223,92 @@ function projectFeature(feature: unknown, fields: readonly string[]): OwnerJoinR
   return out;
 }
 
-/** The rows of one key, one per distinct served content, first occurrence
- *  kept. Cells compare trimmed and without regard to case, and a missing cell
- *  as a blank one. */
+/** Control characters (C0 and C1), NUL included. */
+const CONTROL_RE = /\p{Cc}/gu;
+/** Format characters: zero-width space and joiners, word joiner, BOM, soft hyphen. */
+const FORMAT_RE = /\p{Cf}/gu;
+/** Combining marks of every kind (Mn, Mc, Me). */
+const MARK_RE = /\p{M}/gu;
+/** Variation selectors, Mongolian free variation selectors, Khmer U+17B4 and U+17B5, the Hangul fillers. */
+const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+/** The six fillers that render blank: the braille blank, the four Hangul fillers and the musical null notehead. */
+const BLANK_FILLER_RE = /[\u2800\u3164\u115f\u1160\uffa0\u{1d159}]/gu;
+
+/** The text with every character that renders as nothing removed and each run of
+ *  whitespace made one space, trimmed. This is UrbanKit Studio's `visibleText`
+ *  (src/lib/blank-cell.ts), character for character. */
+function visibleText(text: string): string {
+  return text
+    .replace(/\s+/gu, " ")
+    .replace(CONTROL_RE, "")
+    .replace(FORMAT_RE, "")
+    .replace(MARK_RE, "")
+    .replace(IGNORABLE_RE, "")
+    .replace(BLANK_FILLER_RE, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/** One content cell as the de-duplication compares it: NFKC-normalised, only
+ *  the visible text, upper-cased. Null for a missing, null or visibly blank cell,
+ *  which serves nothing. Accents stay: "PEÑA" and "PENA" are two values (the
+ *  owner echo folds them, this does not). */
+function comparedCell(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  // ANCHOR owner-join-nfkc
+  const text = visibleText(String(value).normalize("NFKC")).toUpperCase();
+  return text === "" ? null : text;
+}
+
+/** Does `wide` carry every value `narrow` carries? A null cell of `narrow` carries nothing. */
+function subsumes(wide: ReadonlyArray<string | null>, narrow: ReadonlyArray<string | null>): boolean {
+  return narrow.every((cell, i) => cell === null || cell === wide[i]);
+}
+
+/**
+ * The rows of one key, one per distinct served content, first occurrence kept;
+ * then a row that says nothing another kept row does not is dropped. This is the
+ * rule of UrbanKit Studio's join engine (dedupeJoinRows in its
+ * radius-join-core.ts), applied to the content columns.
+ *
+ * Cells compare as `visibleText(String(cell).normalize("NFKC")).toUpperCase()`:
+ * each run of whitespace is one space and the characters that render as nothing
+ * (controls, format characters such as a zero-width space, combining marks,
+ * default-ignorable code points, the blank fillers) are removed. So "SMITH JOHN",
+ * the same with two inner spaces and the same with a trailing zero-width space
+ * are one row, and so are one name's precomposed and decomposed accents, while
+ * "PEÑA" and "PENA" stay two. A null, missing or visibly blank cell is null and
+ * serves nothing. Only the comparison folds; the row kept is returned as the
+ * county wrote it.
+ *
+ * A kept row is then dropped when another kept row subsumes it: every non-null
+ * cell of the narrow row equals that cell of the wide one. That covers
+ *   - a row with no served value at all, when the key has another row (a key
+ *     whose ONLY row is empty keeps it);
+ *   - one owner once with and once without a mailing line, in either order.
+ * A row that carries a value no other row does stays: two named owners sharing
+ * a mailing address are two rows, and so is one owner at two mailing addresses.
+ * Kept rows are distinct, so two rows never subsume each other and the filter
+ * cannot drop every row of a key. The row ceiling counts what is left.
+ *
+ * The one difference from the UrbanKit Studio engine: it reads cells through the
+ * endpoint's roles (owner, site address, mailing) and treats a placeholder owner
+ * ("UNKNOWN", "N/A") as no owner, while this compares the raw content columns.
+ * Every row here has passed the owner echo, so a placeholder owner can only
+ * appear when the search is for the placeholder itself.
+ */
 function dedupeByContent(rows: readonly OwnerJoinRow[], content: readonly string[]): OwnerJoinRow[] {
   const seen = new Set<string>();
-  const out: OwnerJoinRow[] = [];
+  const kept: Array<{ row: OwnerJoinRow; cells: Array<string | null> }> = [];
   for (const row of rows) {
-    // ANCHOR owner-join-dedupe
-    const signature = JSON.stringify(
-      content.map((field) => (row[field] === null || row[field] === undefined ? "" : String(row[field]).trim().toUpperCase())),
-    );
+    const cells = content.map((field) => comparedCell(row[field]));
+    const signature = JSON.stringify(cells);
     if (seen.has(signature)) continue;
     seen.add(signature);
-    out.push(row);
+    kept.push({ row, cells });
   }
-  return out;
+  // ANCHOR owner-join-subsumed
+  return kept.filter((k) => !kept.some((o) => o !== k && subsumes(o.cells, k.cells))).map((k) => k.row);
 }
 
 /**
@@ -313,7 +384,7 @@ export function ownerJoinNotes(join: OwnerJoin, ownerField: string, layerUrl: st
   return [
     `The rows come from the county's owner table, not the parcel layer: each is one ownership record with no geometry, and its ${join.key} is the parcel's ${join.parcelKey} on the parcel layer ${layerUrl}`,
     `Check every row before using any: each must hold the searched name in ${ownerField}. If one does not, the table did not apply the where clause, so discard the whole response and show none of its owners`,
-    `Rows of one ${join.key} that carry the same owner and mailing values are one ownership record, so keep one of them. ` +
+    `One ${join.key} can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the ${join.key} already carries (the same owner once with and once without a mailing line is one record). ` +
       (cap === 1
         ? `A ${join.key} left with more than one different row has no single owner: show none of its rows`
         : `A ${join.key} left with more than ${cap} different rows has no owner you can state: show none of its rows`),

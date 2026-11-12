@@ -3,9 +3,9 @@
  * src/search-policy.ts and src/server.ts): a county whose owners sit in a
  * separate TABLE of its parcel service, joined to the parcel layer on a key.
  *
- * The bundled atlas carries no such record yet (Sussex County DE arrives in
- * atlas 0.9.1), so the records are fixtures shaped like it, built in
- * ./owner-join-fixture.mjs. Nothing is fetched: this server builds URLs, and
+ * The bundled atlas (0.9.1) carries Sussex County DE, the first such record,
+ * but the tests run on fixtures shaped like it, built in ./owner-join-fixture.mjs,
+ * so every setting they need is under the test's own control. Nothing is fetched: this server builds URLs, and
  * the row-reading rules are exercised on rows written here.
  *
  * Runs against the BUILT modules (dist/), the same bytes that ship, so build
@@ -271,6 +271,106 @@ test("dedupe: rows of one key that serve the same owner and mailing values are o
   assert.deepEqual(result.byKey.get("2-00"), { state: "joined", rows: [features[5].attributes] });
 });
 
+// The de-duplication is UrbanKit Studio's dedupeJoinRows: cells compare as
+// visibleText(String(cell).normalize("NFKC")).toUpperCase(), and a row whose
+// values another kept row of the key carries is dropped.
+const bare = (pin, owner, mailing) => feature({ PIN: pin, FULLNAME: owner, MAILINGADDRESS: mailing });
+const keyRows = (features, name = "SMITH", join = ownerTable(), pin = "1-00") => {
+  const result = read(features, join, name);
+  assert.equal(result.ok, true);
+  return result.byKey.get(pin);
+};
+const ownerNames = (state) => state.rows.map((r) => r.FULLNAME);
+
+test("dedupe: precomposed and decomposed accents are one row, kept as the county wrote it", () => {
+  const precomposed = "PE\u00d1A EXAMPLE";
+  const decomposed = "PEN\u0303A EXAMPLE";
+  assert.notEqual(precomposed, decomposed, "fixture: two spellings of one name");
+  assert.equal(precomposed.normalize("NFKC"), decomposed.normalize("NFKC"));
+  for (const order of [[precomposed, decomposed], [decomposed, precomposed]]) {
+    const one = keyRows(order.map((owner) => bare("1-00", owner, "1 EXAMPLE ST")), "PE");
+    assert.equal(one.state, "joined");
+    assert.deepEqual(ownerNames(one), [order[0]], "first occurrence, as written");
+  }
+});
+
+test("dedupe: a zero-width space or a doubled inner space does not make a second row", () => {
+  const one = keyRows([
+    bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST"),
+    bare("1-00", "SMITH  EXAMPLE", "1 EXAMPLE ST"),
+    bare("1-00", "SMITH\u200b EXAMPLE", "1 EXAMPLE ST"),
+    bare("1-00", "SMITH EXAMPLE\u200b", "1  EXAMPLE ST"),
+  ]);
+  assert.equal(one.state, "joined");
+  assert.deepEqual(ownerNames(one), ["SMITH EXAMPLE"]);
+  // CONTROL: a real difference of text is still a second row.
+  const two = keyRows([bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLES", "1 EXAMPLE ST")]);
+  assert.equal(two.rows.length, 2);
+});
+
+test("dedupe: the owner echo is accent-insensitive, the de-duplication is not: two spellings, two rows", () => {
+  const one = keyRows([bare("1-00", "PE\u00d1A EXAMPLE", "1 EXAMPLE ST"), bare("1-00", "PENA EXAMPLE", "1 EXAMPLE ST")], "PENA");
+  assert.equal(one.state, "joined", "both rows pass the echo of PENA");
+  assert.deepEqual(ownerNames(one), ["PE\u00d1A EXAMPLE", "PENA EXAMPLE"]);
+});
+
+test("dedupe: the same owner with and without the mailing line is one row, in either order", () => {
+  const withLine = bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST");
+  for (const without of [bare("1-00", "SMITH EXAMPLE", null), bare("1-00", "smith example", ""), bare("1-00", "SMITH EXAMPLE", "\u200b "), feature({ PIN: "1-00", FULLNAME: "SMITH EXAMPLE" })]) {
+    for (const order of [[withLine, without], [without, withLine]]) {
+      const one = keyRows(order);
+      assert.equal(one.state, "joined");
+      assert.deepEqual(one.rows, [withLine.attributes], "the row that carries the mailing line is the one kept");
+    }
+  }
+});
+
+test("dedupe: two named owners sharing a mailing address are two rows", () => {
+  const one = keyRows([bare("1-00", "SMITH EXAMPLE A", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE B", "1 EXAMPLE ST")]);
+  assert.deepEqual(ownerNames(one), ["SMITH EXAMPLE A", "SMITH EXAMPLE B"]);
+});
+
+test("dedupe: one owner at two mailing addresses is two rows", () => {
+  const one = keyRows([bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE", "9 OTHER RD")]);
+  assert.deepEqual(one.rows.map((r) => r.MAILINGADDRESS), ["1 EXAMPLE ST", "9 OTHER RD"]);
+});
+
+test("dedupe: an all-empty row beside a real one is dropped, and a key whose only row is empty keeps it", () => {
+  // A blank owner cell passes the echo only for a search that is itself a wildcard.
+  const empty = feature({ PIN: "1-00", FULLNAME: "", MAILINGADDRESS: null });
+  const blank = feature({ PIN: "1-00", FULLNAME: "\u200b ", MAILINGADDRESS: "\u2800" });
+  const real = bare("1-00", "SMITH EXAMPLE", "1 EXAMPLE ST");
+  for (const order of [[empty, real], [real, empty], [blank, real, empty], [real, blank]]) {
+    const one = keyRows(order, "%");
+    assert.equal(one.state, "joined");
+    assert.deepEqual(one.rows, [real.attributes]);
+  }
+  // CONTROL: the empty row is read as a row of its own when nothing else is there.
+  const alone = keyRows([empty], "%");
+  assert.deepEqual(alone, { state: "joined", rows: [empty.attributes] });
+  const twoEmpty = keyRows([empty, blank], "%");
+  assert.deepEqual(twoEmpty, { state: "joined", rows: [empty.attributes] }, "two empty rows are one empty row");
+});
+
+test("cap: the ceiling counts the rows left after subsumption", () => {
+  const join = ownerTable();
+  assert.equal(ownerJoinRowCap(join), 3, "fixture: the cap");
+  const three = [bare("1-00", "SMITH EXAMPLE A", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE B", "2 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE C", "3 EXAMPLE ST")];
+  // Three records plus a copy of one without its mailing line and an empty row: five rows, three records.
+  const padded = [...three, bare("1-00", "SMITH EXAMPLE A", null), feature({ PIN: "1-00", FULLNAME: "", MAILINGADDRESS: null })];
+  const left = keyRows(padded, "%", join);
+  assert.equal(left.state, "joined");
+  assert.deepEqual(ownerNames(left), ["SMITH EXAMPLE A", "SMITH EXAMPLE B", "SMITH EXAMPLE C"]);
+  // CONTROL: a fourth record that nothing subsumes is over the ceiling.
+  assert.deepEqual(keyRows([...padded, bare("1-00", "SMITH EXAMPLE D", "4 EXAMPLE ST")], "%", join), { state: "ambiguous", count: 4 });
+  // With a ceiling of one, one owner once with and once without a mailing line is still one record.
+  const single = ownerTable({ multiple: undefined, maxRowsPerKey: undefined });
+  const pair = keyRows([bare("1-00", "SMITH EXAMPLE A", null), bare("1-00", "SMITH EXAMPLE A", "1 EXAMPLE ST")], "SMITH", single);
+  assert.equal(pair.state, "joined");
+  assert.equal(pair.rows.length, 1);
+  assert.deepEqual(keyRows([bare("1-00", "SMITH EXAMPLE A", "1 EXAMPLE ST"), bare("1-00", "SMITH EXAMPLE B", "1 EXAMPLE ST")], "SMITH", single), { state: "ambiguous", count: 2 });
+});
+
 test("cap: a key with more different rows than maxRowsPerKey is withheld, and the other keys are still read", () => {
   const owners = (pin, n) => Array.from({ length: n }, (_, i) => row(pin, `SMITH EXAMPLE ${i + 1}`));
   const join = ownerTable();
@@ -399,7 +499,7 @@ test("the notes under a table query give the reading rules readOwnerJoinRows hol
   assert.deepEqual(ownerTableNotes(p, ep), [
     `The rows come from the county's owner table, not the parcel layer: each is one ownership record with no geometry, and its PIN is the parcel's Name on the parcel layer ${LAYER_URL}`,
     "Check every row before using any: each must hold the searched name in FULLNAME. If one does not, the table did not apply the where clause, so discard the whole response and show none of its owners",
-    "Rows of one PIN that carry the same owner and mailing values are one ownership record, so keep one of them. A PIN left with more than 3 different rows has no owner you can state: show none of its rows",
+    "One PIN can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than 3 different rows has no owner you can state: show none of its rows",
     "For more rows add &resultOffset=25 (then 50, and so on) and keep orderByFields=OBJECTID_1, which holds the pages in one order",
   ]);
   // The numbers and names in the notes are the query's and the reader's own.
@@ -412,7 +512,7 @@ test("the notes under a table query give the reading rules readOwnerJoinRows hol
   const single = joinedEndpoint({ ownerJoin: ownerTable({ multiple: undefined, maxRowsPerKey: undefined }) });
   assert.equal(
     ownerTableNotes(ownerSearchPolicy({}, single), single)[2],
-    "Rows of one PIN that carry the same owner and mailing values are one ownership record, so keep one of them. A PIN left with more than one different row has no single owner: show none of its rows",
+    "One PIN can hold several rows: de-duplicate them by the owner and mailing values you read (never by a row label, which is not unique), and drop a row whose values another row of the PIN already carries (the same owner once with and once without a mailing line is one record). A PIN left with more than one different row has no single owner: show none of its rows",
   );
 });
 
@@ -456,7 +556,7 @@ test("every join-less endpoint of the installed atlas keeps the 0.3.12 request s
         const p = ownerSearchPolicy(c, ep);
         const url = buildArcgisOwnerQuery(ep, p, "SMITH");
         if (ep.ownerJoin !== undefined) {
-          // A real joined record (none before atlas 0.9.1): never the layer.
+          // A real joined record (Sussex DE, since atlas 0.9.1): never the layer.
           if (p.join) assert.ok(url.startsWith(`${p.join.url}/query?`) && url.includes("&orderByFields="), `${c.id}: ${url}`);
           continue;
         }
