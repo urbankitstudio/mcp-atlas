@@ -6,6 +6,25 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.1 (2026-11-14)
+
+Atlas ^0.9.3. A data-only release: no tool, description or answer format changes.
+
+- **Pinal County AZ (FIPS 04021) answers again.** Its record now points at the county's own
+  layer, `gis.pinal.gov/mapping/rest/services/TaxParcels/FeatureServer/3`, with owner name and
+  owner mailing address. The City of Casa Grande host the record used before was retired and
+  redirects to the city homepage, so 0.4.0 handed out a dead URL for it.
+- **Kent County MI (26081) and Montgomery County TN (47125) have no endpoint.** Kent moved its
+  parcel services behind a token (coverage reason `login-required`). Montgomery's server refuses
+  hosted servers (reason `technical`). Both follow the existing no-endpoint convention, so
+  `find_county` and `get_parcel_endpoint` give the atlas coverage answer for them instead of a
+  URL that fails.
+- **Atlas 0.9.2 records reach this server too**, since 0.4.0 shipped on 0.9.1: Johnston OK (40069) and
+  Vigo IN (18167) with coverage reason `no-public-service`, and Matanuska-Susitna Borough AK (02170) with
+  `licence-restricted`. All three are records with no endpoint, so they get the coverage answer.
+- The atlas index now lists 542 counties, 520 endpoints and 492 counties with an endpoint (0.4.0's
+  README and package description said 539, 522 and 494).
+
 ## 0.4.0 (2026-11-11)
 
 Owner search on counties whose owners live in a joined table, and atlas ^0.9.1. Under 0.x
