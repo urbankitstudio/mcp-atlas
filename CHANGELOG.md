@@ -6,6 +6,18 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.2 (2026-11-14)
+
+Atlas ^0.9.4. A data-only release: no tool, description or answer format changes.
+
+- **Nine New York records answer again.** New York State retired its legacy GIS host on
+  2026-11-13. The statewide tax parcel layer now lives at
+  `nysgeohub.ny.gov/arcgis/rest/services/Parcels/NYS_Tax_Parcels_Public/MapServer/1`, with the same
+  fields. Atlas 0.9.4 points Bronx, Kings, New York, Queens, Richmond, Onondaga, Suffolk,
+  Westchester and Cayuga at it, so `get_parcel_endpoint` and the owner-search URLs for those
+  counties use the new host. 0.4.1 handed out the retired one.
+- Coverage is unchanged: 542 counties, 520 endpoints, 492 counties with an endpoint.
+
 ## 0.4.1 (2026-11-14)
 
 Atlas ^0.9.3. A data-only release: no tool, description or answer format changes.
