@@ -40,6 +40,7 @@ import {
   ownerTableNotes,
   escapeSqlLiteral,
   confidentialLine,
+  fieldRoleLines,
   parcelEndpointSamples,
   ownerRefusal,
   ownerLine,
@@ -148,6 +149,7 @@ function formatCountySummary(c: CountyRecord): string {
           ...(scope ? [`  ${scope}`] : []),
           ...(confidential ? [`  ${confidential}`] : []),
           `  Searchable fields: ${searchable || "none"}`,
+          ...fieldRoleLines(ep).map((l) => `  ${l}`),
           `  ${ownerLine(owner)}`,
           `  License: ${ep.license}`,
         ].join("\n");
@@ -451,6 +453,7 @@ server.registerTool(
       ep.searchFields
         .filter((sf) => sf.searchable)
         .forEach((sf) => lines.push(`    ${queryFieldName(sf).padEnd(20)} – ${sf.label}`));
+      for (const roleLine of fieldRoleLines(ep)) lines.push(`  ${roleLine}`);
       lines.push("");
       lines.push(`  ${ownerLine(owner)}`);
       // parcelEndpointSamples withholds the atlas's sample on any flagged

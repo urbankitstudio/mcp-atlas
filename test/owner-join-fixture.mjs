@@ -90,6 +90,33 @@ export const JOINED_COUNTY_NAME = "Sussex Fixture";
 export const WIRE_COUNTY_NAME = "Wire Fixture";
 export const WIRE_LAYER_URL = "https://gis.example.gov/server/rest/services/Joined/MapServer/7";
 
+export const ROLE_COUNTY_NAME = "Role Fixture";
+export const ROLE_LAYER_URL = "https://gis.example.gov/server/rest/services/Roles/FeatureServer/0";
+
+/**
+ * A layer shaped like Dooly County GA (atlas 0.9.7): a composite site address
+ * with its directional in a column of its own, and a mailing column with a
+ * second line declared as its fallback. Both columns are searchable: false and
+ * carry a `role`, in the order Dooly lists them (directional first).
+ */
+export function roleEndpoint() {
+  return plainEndpoint({
+    url: ROLE_LAYER_URL,
+    serviceType: "FeatureServer",
+    layerIndex: 0,
+    searchFields: [
+      { name: "Parcel_No", label: "Parcel ID", searchable: true },
+      { name: "lastname", label: "Owner Name", searchable: true },
+      { name: "house_no", label: "House Number", searchable: true },
+      { name: "street_nam", label: "Street Name", searchable: true },
+      { name: "stdirect", label: "Street Direction", searchable: false, role: "situs-directional" },
+      { name: "address2", label: "Owner Mailing Address", searchable: true },
+      { name: "address1", label: "Owner Mailing Line 1 (c/o or street)", searchable: false, role: "mailing-fallback" },
+    ],
+    sampleQuery: null,
+  });
+}
+
 /** A layer that answers with qualified column names and carries no owner table. */
 export function wireEndpoint() {
   return plainEndpoint({

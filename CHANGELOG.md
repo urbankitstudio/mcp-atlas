@@ -6,6 +6,23 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.5 (2026-11-15)
+
+Atlas ^0.9.7. The endpoint output (`find_county` and `get_parcel_endpoint`) gains a `Field role:`
+line, one per column, where a record declares a role for it; a record that declares none prints
+exactly what it printed before. No tool name, tool description or input schema changed. The README
+coverage line now reads atlas 0.9.7; the counts are unchanged (546 counties, 522 endpoints, 494
+counties with an endpoint).
+
+- **Dooly County, GA declares two roles**, the only record that does. `address1` ("Owner Mailing
+  Line 1 (c/o or street)") is the `mailing-fallback` for the county's primary mailing column: read
+  it only when that column is blank or a placeholder, and only when its value is a mailing line.
+  `stdirect` ("Street Direction") is the `situs-directional`: compose the site address as house
+  number, directional, street name. Both columns are not searchable, so before this release neither
+  showed in the field lists.
+- Each role line is worded by this server from the atlas package's reading rules, and the
+  tests pin the whole installed atlas to exactly these two lines.
+
 ## 0.4.4 (2026-11-15)
 
 Atlas ^0.9.6. A data-only release: no tool, tool description or answer format changes. The README,
