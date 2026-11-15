@@ -6,6 +6,20 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.3 (2026-11-15)
+
+Atlas ^0.9.5. A data-only release: no tool, tool description or answer format changes. The README,
+package.json and server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
+
+- **St. Mary's County, MD gets an endpoint.** It is Maryland's statewide MD iMAP Parcel Points
+  layer, scoped to the county with `JURSCODE = 'STMA'`. The state layer publishes the owner's
+  mailing address and the site address but no owner name, so `owner_name` reads `not_published`.
+- **Plymouth County, MA and Kent County, RI are recorded without an endpoint**, and each record's
+  notes give the reason.
+- **Providence County, RI:** its notes now describe the RIGIS Tax_Parcels layer, which answers but
+  carries no owner fields.
+- Coverage: 545 counties, 521 endpoints, 493 counties with an endpoint (was 542, 520 and 492).
+
 ## 0.4.2 (2026-11-14)
 
 Atlas ^0.9.4. A data-only release: no tool, description or answer format changes.
