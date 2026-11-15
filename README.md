@@ -8,7 +8,7 @@ Query the parcel ArcGIS REST endpoints of 546 counties across 51 US states (50 s
 
 An [MCP](https://modelcontextprotocol.io) server that gives AI assistants direct access to UrbanKit Studio's atlas of manually verified county parcel GIS services. Ask Claude or Cursor to find the ArcGIS REST endpoint for any covered county, get the exact owner-search query URL, and look up parcel data — without needing to know anything about ArcGIS REST API conventions.
 
-**Coverage:** 546 counties across 51 US states (50 states plus DC), 522 endpoints, 522 of them live (atlas 0.9.6). 494 of the counties have an endpoint; for the other 52 the atlas records why not (see "A county we cannot serve" below).
+**Coverage:** 546 counties across 51 US states (50 states plus DC), 522 endpoints, 522 of them live (atlas 0.9.7). 494 of the counties have an endpoint; for the other 52 the atlas records why not (see "A county we cannot serve" below).
 
 ---
 
@@ -138,7 +138,9 @@ Resolves a reference you cannot state exactly. Fuzzy-matches a partial or
 misspelled name, a "County State" phrase, or a 5-digit FIPS code against every
 covered county, and names each county it matched so an ambiguous reference
 comes back as a list to choose from. Each match carries that county's record:
-endpoint URLs, searchable field names, owner field, sample query, license.
+endpoint URLs, searchable field names, owner field, sample query, license. A
+record that gives a column a role prints a `Field role:` line for it (see
+`get_parcel_endpoint`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -159,6 +161,10 @@ for one county. For a named owner, use
 that flags confidential owners it prints the `Confidential flag:` exclusion
 to AND into any query of your own, and prints its own sample owner query in
 place of the atlas's, so the one sample shown carries this server's clauses.
+Where a record gives a column a role (atlas 0.9.7; today only Dooly County, GA:
+a second owner-mailing line and the site address's directional, both columns
+you cannot search on) it prints one `Field role:` line per such column after
+the searchable fields, saying how to read it.
 Where the owners sit in a joined table, the owner field line names the table
 and the sample owner query goes to it.
 

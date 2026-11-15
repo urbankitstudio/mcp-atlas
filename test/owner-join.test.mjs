@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { atlas } from "@urbankitstudio/atlas";
+import { atlas, countyHasEndpoint } from "@urbankitstudio/atlas";
 import {
   ownerSearchPolicy,
   ownerWhereClause,
@@ -32,6 +32,7 @@ import {
   parcelEndpointSamples,
   ownerRefusal,
   ownerLine,
+  fieldRoleLines,
   OWNER_UNSEARCHABLE_REASON,
 } from "../dist/search-policy.js";
 import {
@@ -52,6 +53,8 @@ import {
   joinedEndpoint,
   plainEndpoint,
   wireEndpoint,
+  roleEndpoint,
+  ROLE_COUNTY_NAME,
 } from "./owner-join-fixture.mjs";
 
 const PIN_ONLY_NOTE =
@@ -629,8 +632,8 @@ const SERVER = resolve(HERE, "../dist/server.js");
 const PRELOAD = pathToFileURL(resolve(HERE, "owner-join-preload.mjs")).href;
 
 /** Start the built server with the fixture counties preloaded, and hand `run` a tool caller. */
-async function withServer(run) {
-  const proc = spawn(process.execPath, ["--import", PRELOAD, SERVER], { stdio: ["pipe", "pipe", "pipe"] });
+async function withServer(run, nodeArgs = ["--import", PRELOAD]) {
+  const proc = spawn(process.execPath, [...nodeArgs, SERVER], { stdio: ["pipe", "pipe", "pipe"] });
   const waiting = new Map();
   let buffer = "";
   let stderr = "";
@@ -756,4 +759,108 @@ test("stdio server: the field lists print the name to send (a wireName where a r
     const names = county.endpoints[0].searchFields.filter((sf) => sf.searchable).map((sf) => `${sf.name} (${sf.label})`);
     assert.ok(plain.split("\n").includes(`  Searchable fields: ${names.join(", ")}`), plain);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Field roles (atlas 0.9.7, SearchField.role): find_county and get_parcel_endpoint
+// ---------------------------------------------------------------------------
+
+// Literal on purpose: these are the words an agent reads, so a reworded line must fail here.
+const DIRECTIONAL_LINE =
+  "Field role: stdirect (Street Direction) is the situs-directional: the directional of the site address, kept in its own column apart from the house-number and street-name columns. Compose the site address as house number, directional, street name, using the value only when it is a direction (N, S, E, W, NE, NW, SE, SW or spelled out). A redaction marker in it withholds the whole row";
+const FALLBACK_LINE =
+  'Field role: address1 (Owner Mailing Line 1 (c/o or street)) is the mailing-fallback: a second owner-mailing line. Read it only when the endpoint\'s primary mailing column is blank or a placeholder such as "N/A", never when that column is masked or withheld, and only when its value is a mailing line (a whole house number then a word, a P O Box or Drawer with its number, or a rural route box) with no owner-entity, share, c/o or attention word and no word that says it is withheld (such as CONFIDENTIAL). A redaction marker in it withholds the whole row';
+
+test("field roles: a record with both roles gets one line per role field, in field order; one with none gets none", () => {
+  assert.deepEqual(fieldRoleLines(roleEndpoint()), [DIRECTIONAL_LINE, FALLBACK_LINE]);
+  assert.deepEqual(fieldRoleLines(plainEndpoint()), []);
+  assert.deepEqual(fieldRoleLines(joinedEndpoint()), []);
+  assert.deepEqual(fieldRoleLines(wireEndpoint()), []);
+});
+
+test("field roles: a role this server has no wording for prints nothing, never a guess", () => {
+  const ep = plainEndpoint({
+    searchFields: [{ name: "x", label: "X", searchable: false, role: "constructor" }, { name: "y", label: "Y", searchable: true, role: "toString" }],
+  });
+  assert.deepEqual(fieldRoleLines(ep), []);
+});
+
+test("stdio server: both outputs print both role lines after the searchable fields, and the role columns stay out of the searchable list", async () => {
+  await withServer(async (call) => {
+    const record = (await call("get_parcel_endpoint", { state: "DE", county: ROLE_COUNTY_NAME })).split("\n");
+    const lastSearchable = record.indexOf(`    address2             ${String.fromCharCode(8211)} Owner Mailing Address`);
+    assert.ok(lastSearchable > 0, record.join("\n"));
+    assert.equal(record[lastSearchable + 1], `  ${DIRECTIONAL_LINE}`);
+    assert.equal(record[lastSearchable + 2], `  ${FALLBACK_LINE}`);
+    assert.equal(record[lastSearchable + 3], "");
+    assert.ok(record[lastSearchable + 4].startsWith("  Owner field:"), record.join("\n"));
+    assert.ok(!record.some((l) => l.startsWith("    stdirect") || l.startsWith("    address1")), "a role column is not searchable");
+
+    const found = (await call("find_county", { query: `${ROLE_COUNTY_NAME} DE` })).split("\n");
+    const at = found.indexOf(
+      "  Searchable fields: Parcel_No (Parcel ID), lastname (Owner Name), house_no (House Number), street_nam (Street Name), address2 (Owner Mailing Address)",
+    );
+    assert.ok(at > 0, found.join("\n"));
+    assert.equal(found[at + 1], `  ${DIRECTIONAL_LINE}`);
+    assert.equal(found[at + 2], `  ${FALLBACK_LINE}`);
+    assert.ok(found[at + 3].startsWith("  Owner field:"), found.join("\n"));
+  });
+});
+
+test("stdio server: a record with no role field prints no role line in either output", async () => {
+  await withServer(async (call) => {
+    const { county } = newCastle();
+    for (const [name, state, county_] of [
+      ["wire fixture", "DE", WIRE_COUNTY_NAME],
+      ["joined fixture", "DE", JOINED_COUNTY_NAME],
+      ["New Castle", "DE", county.county],
+    ]) {
+      const record = await call("get_parcel_endpoint", { state, county: county_ });
+      const found = await call("find_county", { query: `${county_} ${state}` });
+      assert.ok(record.includes("Searchable fields:"), `CONTROL ${name}: the endpoint output is the real one`);
+      assert.ok(found.includes("Searchable fields:"), `CONTROL ${name}: the summary is the real one`);
+      assert.ok(!record.includes("Field role"), `${name}: get_parcel_endpoint prints no role line`);
+      assert.ok(!found.includes("Field role"), `${name}: find_county prints no role line`);
+    }
+  });
+});
+
+test("the installed atlas declares exactly two role fields, both Dooly GA's, and every output carries exactly those", async () => {
+  const declared = [];
+  for (const file of atlas.byStateSlug.values()) {
+    for (const c of file.counties) {
+      for (const ep of c.endpoints ?? []) {
+        for (const sf of ep.searchFields) if (sf.role) declared.push(`${c.id}:${sf.name}:${sf.role}`);
+      }
+    }
+  }
+  assert.deepEqual(declared.sort(), ["ga-dooly:address1:mailing-fallback", "ga-dooly:stdirect:situs-directional"]);
+
+  // A server with NO preload, so the fixture counties are not in it: the whole installed atlas.
+  const roleLines = { get_parcel_endpoint: [], find_county: [] };
+  let counties = 0;
+  await withServer(async (call) => {
+    for (const file of atlas.byStateSlug.values()) {
+      for (const c of file.counties) {
+        if (!countyHasEndpoint(c)) continue;
+        counties++;
+        const outputs = {
+          get_parcel_endpoint: await call("get_parcel_endpoint", { state: c.state, county: c.county }),
+          find_county: await call("find_county", { query: `${c.county} ${c.state}` }),
+        };
+        for (const [tool, text] of Object.entries(outputs)) {
+          assert.ok(text.includes("URL:"), `CONTROL ${c.id} ${tool}: an endpoint answer, not a refusal`);
+          for (const l of text.split("\n")) if (l.includes("Field role")) roleLines[tool].push(`${c.id}|${l}`);
+        }
+      }
+    }
+  }, []);
+  assert.ok(counties >= 490, `counties compared: ${counties}`);
+  for (const tool of Object.keys(roleLines)) {
+    assert.deepEqual(
+      roleLines[tool],
+      [`ga-dooly|  ${DIRECTIONAL_LINE}`, `ga-dooly|  ${FALLBACK_LINE}`],
+      `${tool}: exactly Dooly's two role lines in the whole atlas`,
+    );
+  }
 });

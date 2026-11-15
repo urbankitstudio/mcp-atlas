@@ -50,7 +50,7 @@
  */
 
 import { isReviewedUnservable, offersPagination, queryFieldName, reviewedCapability } from "@urbankitstudio/atlas";
-import type { ConfidentialFlag, CountyRecord, EndpointRecord, OwnerJoin } from "@urbankitstudio/atlas";
+import type { ConfidentialFlag, CountyRecord, EndpointRecord, OwnerJoin, SearchFieldRole } from "@urbankitstudio/atlas";
 import { ownerJoinNotes, ownerJoinOutFields, ownerJoinTableUrl, usableOwnerJoin } from "./owner-join.js";
 
 /**
@@ -318,6 +318,34 @@ export function confidentialLine(owner: Pick<OwnerSearchPolicy, "confidential" |
     return `Confidential flag: ${c.where} (the county flags confidential owners in ${c.field}; this layer takes no where clause, so ${flaggedRowRule(c)})`;
   }
   return `Confidential flag: ${c.where} (the county flags confidential owners in ${c.field}; AND this into every query, and never show or pass on a flagged row)`;
+}
+
+/**
+ * What an agent does with each role a searchField declares (atlas 0.9.7,
+ * `SearchField.role`). The wording is this server's own, written from the
+ * atlas package's reading rules; no text from a record is interpolated except
+ * the column's name and label, which the field lists print already. A column
+ * with no role prints nothing, so an endpoint that declares none is unchanged.
+ */
+const FIELD_ROLE_USE: Readonly<Record<SearchFieldRole, string>> = {
+  "mailing-fallback":
+    "a second owner-mailing line. Read it only when the endpoint's primary mailing column is blank or a placeholder such as \"N/A\", never when that column is masked or withheld, and only when its value is a mailing line (a whole house number then a word, a P O Box or Drawer with its number, or a rural route box) with no owner-entity, share, c/o or attention word and no word that says it is withheld (such as CONFIDENTIAL). A redaction marker in it withholds the whole row",
+  "situs-directional":
+    "the directional of the site address, kept in its own column apart from the house-number and street-name columns. Compose the site address as house number, directional, street name, using the value only when it is a direction (N, S, E, W, NE, NW, SE, SW or spelled out). A redaction marker in it withholds the whole row",
+};
+
+/**
+ * One line per searchField that declares a role, in field order, for find_county
+ * and get_parcel_endpoint to print after the searchable fields. Empty when the
+ * endpoint declares none.
+ */
+export function fieldRoleLines(endpoint: Pick<EndpointRecord, "searchFields">): string[] {
+  const lines: string[] = [];
+  for (const sf of endpoint.searchFields) {
+    if (!sf.role || !Object.hasOwn(FIELD_ROLE_USE, sf.role)) continue;
+    lines.push(`Field role: ${queryFieldName(sf)} (${sf.label}) is the ${sf.role}: ${FIELD_ROLE_USE[sf.role]}`);
+  }
+  return lines;
 }
 
 // THE OWNER-COLUMN TEST, copied VERBATIM from the UrbanKit Studio canonical
