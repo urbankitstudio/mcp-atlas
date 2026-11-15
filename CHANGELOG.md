@@ -6,6 +6,21 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.4 (2026-11-15)
+
+Atlas ^0.9.6. A data-only release: no tool, tool description or answer format changes. The README,
+package.json and server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
+
+- **Dooly County, GA gets an endpoint.** It is the county's own WinGAP parcel layer on ArcGIS
+  Online, with the owner name, the parcel id, the site address (house number plus street name) and
+  the owner's mailing address. A visitor asked for it.
+- **Known limits, from the record's notes:** the parcel id is space-padded, so an id typed with
+  single spaces matches nothing (the notes give the exact query); the mailing address reads blank on
+  about 18% of parcels whose street sits only in the first address line; and a geocoded address with
+  a directional declines on the 686 parcels that keep it in its own column. A decline never returns
+  a wrong owner.
+- Coverage: 546 counties, 522 endpoints, 494 counties with an endpoint (was 545, 521 and 493).
+
 ## 0.4.3 (2026-11-15)
 
 Atlas ^0.9.5. A data-only release: no tool, tool description or answer format changes. The README,
