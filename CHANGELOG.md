@@ -6,6 +6,23 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.6 (2026-11-22)
+
+Atlas ^0.9.8. A data-only release: no tool, tool description or answer format changes. The README,
+package.json and server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
+
+- **Twelve counties get an endpoint,** all requested by users: Madison IL, Madison VA, Kennebec ME
+  (part of the county; the towns it does not cover are listed), Indiana PA, Hays TX, Curry NM,
+  Carroll AR, Limestone AL, Union NJ, Middlesex NJ, Carter TN and Sedgwick KS.
+- **Seven are recorded with no endpoint,** each with the reason: Gordon GA, Genesee MI, Norfolk MA,
+  Washington RI, Warren MO, Bates MO and Deschutes OR.
+- **DuPage IL is open data** under the Open Geo-Spatial Data License - DuPage County 1.0, and its
+  record carries the county's attribution statement as its credit.
+- **Licence notes:** Carter TN's endpoint is the City of Johnson City service, whose terms bar resale
+  and reproduction without written permission. Kansas law (K.S.A. 45-230) bars selling lists of names
+  and addresses from public records, which the Sedgwick and Shawnee records name.
+- Coverage: 565 counties, 535 endpoints, 506 counties with an endpoint (was 546, 522 and 494).
+
 ## 0.4.5 (2026-11-15)
 
 Atlas ^0.9.7. The endpoint output (`find_county` and `get_parcel_endpoint`) gains a `Field role:`
