@@ -51,10 +51,11 @@ export type OwnerJoinRow = Record<string, unknown>;
 
 /**
  * Is anything beside the join that the join path does not handle? The
- * registry validator refuses each of these on a record with an ownerJoin
- * "until that combination is built" (its rule J8), so no published record is
- * expected to reach a true here. This is the same refusal at run time, for a
- * record that got past the validator:
+ * registry validator refuses most of these on a record with an ownerJoin (its
+ * rule J8). Since atlas 0.9.13 it accepts a join beside scopeWhere that carries
+ * `tableWhere` and `layerScope` (Maine's three records). This server sends
+ * neither yet, so it refuses that join here and serves the record as its plain
+ * layers, owner-name search included. The refusals:
  *   - the county withholds owner or mailing columns (a reviewed `restricted`
  *     record): withheld columns are marked on searchFields, and nothing marks
  *     the table's;

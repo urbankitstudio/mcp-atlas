@@ -124,13 +124,16 @@ function creditLine(c: CountyRecord): string {
  * A record that answers for only part of its county says so (atlas 0.9.11,
  * `partialCoverage`), from the structured field and never from the notes text,
  * so an empty answer is not read as "no parcel here" for a place the record
- * does not cover. Empty when the record covers its whole county.
+ * does not cover. Since atlas 0.9.13 a not-covered place is one where the
+ * record's parcel layer returns no owners; another endpoint of the record may
+ * still be searchable by owner name there, so the line points to the notes.
+ * Empty when the record covers its whole county.
  */
 function partialCoverageLine(c: CountyRecord): string {
   const p = c.partialCoverage;
   if (!p) return "";
   const covers = p.covers.length > 0 ? `covers ${p.covers.join(", ")} only; ` : "";
-  return `Partial coverage: ${covers}not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
+  return `Partial coverage: ${covers}not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). The parcel layer returns no owners in the places not covered; the notes say whether their owners can be searched another way.`;
 }
 
 function formatCountySummary(c: CountyRecord): string {
