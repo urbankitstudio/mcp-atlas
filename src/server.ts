@@ -129,7 +129,8 @@ function creditLine(c: CountyRecord): string {
 function partialCoverageLine(c: CountyRecord): string {
   const p = c.partialCoverage;
   if (!p) return "";
-  return `Partial coverage: covers ${p.covers.join(", ")} only; not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
+  const covers = p.covers.length > 0 ? `covers ${p.covers.join(", ")} only; ` : "";
+  return `Partial coverage: ${covers}not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
 }
 
 function formatCountySummary(c: CountyRecord): string {

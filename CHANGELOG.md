@@ -19,8 +19,8 @@ server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
   2026-11-22). Owners in the places not covered are not in this record.` `find_county` and
   `get_parcel_endpoint` print the same line for a record with no endpoint. A county covered whole prints
   no such line.
-- **Two cities and a county.** Rutherford TN and Providence RI (0.9.9), and Yolo County CA, whose
-  endpoint carries no owner data (0.9.10).
+- **Three counties.** Rutherford TN and Providence RI (0.9.9; Providence answers for the City of
+  Providence), and Yolo CA, whose endpoint carries no owner data (0.9.10).
 - Atlas 0.9.12 changes no data; it documents the hosted radius response field and the enrich
   source-incomplete change, which this server does not serve.
 - Coverage: 566 counties, 538 endpoints, 509 counties with an endpoint (was 565, 535 and 506).
