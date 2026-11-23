@@ -12,16 +12,17 @@ Atlas ^0.9.14. A data-only release. No tool name, tool description, input schema
 README, package.json and server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
 
 - **Lake County IN gets an endpoint,** with owner names and mailing addresses. Its record carries the
-  Surveyor's Office credit and a `restricted` licence, which is the layer's own terms for you and not
-  UrbanKit's permission. Atlas 0.9.14 also drops every column whose name or alias contains "deduction" from
-  the free tools, so none is requested, offered, searched or shown.
+  Surveyor's Office credit and a `restricted` licence, because the county's permission is UrbanKit's; for
+  anyone else the layer's own licence applies. The layer's deduction columns, whose values name veteran
+  deductions, are not in the record's search fields, so this server never requests them.
 - **Lexington County SC is recorded with no endpoint,** reason `licence-restricted`. The county publishes a
   public parcel layer but told us it cannot give permission for our use of that service, and the notes say so.
 - **Fairfax County VA keeps its endpoint,** and its licence moves from `public` to `restricted`. The county
   will not authorize commercial use of its data, and the notes quote its disclaimer. The notes' property
   search link now points to the county's current Property Search.
 - **Kent County MI** notes add the Bureau of Equalization's 2026 per-record price for parcel exports, and the
-  coverage summary names it. The reason stays `login-required`.
+  coverage summary names it. The notes also record the county's new public parcel view, which has no owner
+  columns and is not indexed yet. The reason stays `login-required`.
 - Coverage: 568 counties, 539 endpoints, 510 counties with an endpoint (was 566, 538 and 509).
 
 The lockfile moves only the atlas entry and this package's own version.
