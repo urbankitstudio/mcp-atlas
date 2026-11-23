@@ -6,6 +6,25 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.7 (2026-11-23)
+
+Atlas ^0.9.12. No tool name, tool description or input schema changes. The README, package.json and
+server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
+
+- **A partly covered county says so.** Atlas 0.9.11 adds `partialCoverage` (`covers`, `notCovered`,
+  `checked`) to the four records that answer for only part of their county: Providence RI (the City of
+  Providence), and Cumberland, York and Kennebec ME. `find_county` and `get_parcel_endpoint` now end
+  such a county's answer with one line built from that field, never from the notes text, for example
+  `Partial coverage: covers Providence only; not covered: Burrillville, Central Falls, ... (checked
+  2026-11-22). Owners in the places not covered are not in this record.` `find_county` and
+  `get_parcel_endpoint` print the same line for a record with no endpoint. A county covered whole prints
+  no such line.
+- **Three counties.** Rutherford TN and Providence RI (0.9.9; Providence answers for the City of
+  Providence), and Yolo CA, whose endpoint carries no owner data (0.9.10).
+- Atlas 0.9.12 changes no data; it documents the hosted radius response field and the enrich
+  source-incomplete change, which this server does not serve.
+- Coverage: 566 counties, 538 endpoints, 509 counties with an endpoint (was 565, 535 and 506).
+
 ## 0.4.6 (2026-11-22)
 
 Atlas ^0.9.8. A data-only release: no tool, tool description or answer format changes. The README,
