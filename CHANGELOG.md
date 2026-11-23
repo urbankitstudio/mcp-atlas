@@ -6,6 +6,26 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.8 (2026-11-23)
+
+Atlas ^0.9.13. No tool name, tool description or input schema changes. Coverage totals do not move (566
+counties, 538 endpoints, 509 counties with an endpoint).
+
+- **The partial coverage line says what "not covered" now means.** In atlas 0.9.13 a place the record
+  lists as not covered is one where the parcel layer returns no owners; another endpoint of the record
+  may still find owners there by name (Maine's assessor table, layer 9, does). The line now ends `The
+  parcel layer returns no owners in the places not covered; the notes say whether their owners can be
+  searched another way.` where it said `Owners in the places not covered are not in this record.`
+- **Maine's owner joins are not used by this server yet.** Atlas 0.9.13 joins Maine's parcel polygons
+  (layer 10) to the statewide assessor table (layer 9) on `STATE_ID`, with two new fields a table query
+  must honour: `tableWhere` (the covered towns' GEOCODEs, ANDed into every table request) and `layerScope`
+  (only polygons whose TOWN is a covered town get an owner). This server sends neither yet, so it keeps
+  refusing a join beside `scopeWhere` and serves Cumberland, York and Kennebec as their plain layers:
+  `build_owner_query` searches owner names on layer 9, as before. The record notes now give the safe join
+  key (`STATE_ID`, or `GEOCODE` plus `MAP_BK_LOT`; `MAP_BK_LOT` alone matches other towns' parcels).
+- Maine's `partialCoverage` lists move: Freeport and South Portland (Cumberland) and Kennebunk and Acton
+  (York) are now not covered, because no parcel joins their owner rows.
+
 ## 0.4.7 (2026-11-23)
 
 Atlas ^0.9.12. No tool name, tool description or input schema changes. The README, package.json and

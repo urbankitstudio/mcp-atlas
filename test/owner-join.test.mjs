@@ -871,9 +871,9 @@ test("the installed atlas declares exactly two role fields, both Dooly GA's, and
 
 // Literal on purpose: these are the words an agent reads, so a reworded line must fail here.
 const PROVIDENCE_LINE =
-  "Partial coverage: covers Providence only; not covered: Burrillville, Central Falls, Cranston, Cumberland, East Providence, Foster, Glocester, Johnston, Lincoln, North Providence, North Smithfield, Pawtucket, Scituate, Smithfield, Woonsocket (checked 2026-11-22). Owners in the places not covered are not in this record.";
+  "Partial coverage: covers Providence only; not covered: Burrillville, Central Falls, Cranston, Cumberland, East Providence, Foster, Glocester, Johnston, Lincoln, North Providence, North Smithfield, Pawtucket, Scituate, Smithfield, Woonsocket (checked 2026-11-22). The parcel layer returns no owners in the places not covered; the notes say whether their owners can be searched another way.";
 const FIXTURE_LINE =
-  "Partial coverage: covers Fixtureville only; not covered: Alpha Township, Beta Borough (checked 2026-11-23). Owners in the places not covered are not in this record.";
+  "Partial coverage: covers Fixtureville only; not covered: Alpha Township, Beta Borough (checked 2026-11-23). The parcel layer returns no owners in the places not covered; the notes say whether their owners can be searched another way.";
 const PARTIAL_PRELOAD = pathToFileURL(resolve(HERE, "partial-coverage-preload.mjs")).href;
 
 const partialRecords = () => {
@@ -901,7 +901,7 @@ test("partial coverage: the line is built from the field, so every partial recor
   await withServer(async (call) => {
     for (const c of partial) {
       const p = c.partialCoverage;
-      const line = `Partial coverage: covers ${p.covers.join(", ")} only; not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
+      const line = `Partial coverage: covers ${p.covers.join(", ")} only; not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). The parcel layer returns no owners in the places not covered; the notes say whether their owners can be searched another way.`;
       const found = await call("find_county", { query: `${c.county} ${c.state}` });
       const record = await call("get_parcel_endpoint", { state: c.state, county: c.county });
       assert.ok(found.split("\n").includes(line), `find_county prints ${c.id}'s line`);
