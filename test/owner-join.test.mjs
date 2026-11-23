@@ -864,3 +864,80 @@ test("the installed atlas declares exactly two role fields, both Dooly GA's, and
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// Partial coverage (atlas 0.9.11, CountyRecord.partialCoverage)
+// ---------------------------------------------------------------------------
+
+// Literal on purpose: these are the words an agent reads, so a reworded line must fail here.
+const PROVIDENCE_LINE =
+  "Partial coverage: covers Providence only; not covered: Burrillville, Central Falls, Cranston, Cumberland, East Providence, Foster, Glocester, Johnston, Lincoln, North Providence, North Smithfield, Pawtucket, Scituate, Smithfield, Woonsocket (checked 2026-11-22). Owners in the places not covered are not in this record.";
+const FIXTURE_LINE =
+  "Partial coverage: covers Fixtureville only; not covered: Alpha Township, Beta Borough (checked 2026-11-23). Owners in the places not covered are not in this record.";
+const PARTIAL_PRELOAD = pathToFileURL(resolve(HERE, "partial-coverage-preload.mjs")).href;
+
+const partialRecords = () => {
+  const found = [];
+  for (const file of atlas.byStateSlug.values()) for (const c of file.counties) if (c.partialCoverage) found.push(c);
+  return found;
+};
+
+test("partial coverage: Providence RI prints the structured line in find_county and get_parcel_endpoint", async () => {
+  const providence = partialRecords().find((c) => c.id === "ri-providence");
+  assert.ok(providence && countyHasEndpoint(providence), "CONTROL: Providence RI is a partial record with an endpoint in the installed atlas");
+  await withServer(async (call) => {
+    const found = await call("find_county", { query: "Providence RI" });
+    const record = await call("get_parcel_endpoint", { state: "RI", county: "Providence" });
+    for (const [tool, text] of [["find_county", found], ["get_parcel_endpoint", record]]) {
+      assert.ok(text.includes("URL:"), `CONTROL ${tool}: an endpoint answer, not a refusal`);
+      assert.equal(text.split("\n").filter((l) => l === PROVIDENCE_LINE).length, 1, `${tool}: the Providence line, once`);
+    }
+  }, []);
+});
+
+test("partial coverage: the line is built from the field, so every partial record in the installed atlas prints its own", async () => {
+  const partial = partialRecords();
+  assert.deepEqual(partial.map((c) => c.id).sort(), ["me-cumberland", "me-kennebec", "me-york", "ri-providence"]);
+  await withServer(async (call) => {
+    for (const c of partial) {
+      const p = c.partialCoverage;
+      const line = `Partial coverage: covers ${p.covers.join(", ")} only; not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
+      const found = await call("find_county", { query: `${c.county} ${c.state}` });
+      const record = await call("get_parcel_endpoint", { state: c.state, county: c.county });
+      assert.ok(found.split("\n").includes(line), `find_county prints ${c.id}'s line`);
+      assert.ok(record.split("\n").includes(line), `get_parcel_endpoint prints ${c.id}'s line`);
+    }
+  }, []);
+});
+
+test("partial coverage: a record that covers its whole county prints no such line", async () => {
+  const { county } = newCastle();
+  const gordon = atlas.byStateSlug.get("georgia")?.counties.find((c) => c.id === "ga-gordon");
+  assert.ok(gordon && !countyHasEndpoint(gordon) && !gordon.partialCoverage, "CONTROL fixture: Gordon GA is a no-endpoint record with no partialCoverage");
+  await withServer(async (call) => {
+    const answers = [
+      ["find_county New Castle", await call("find_county", { query: `${county.county} DE` }), "URL:"],
+      ["get_parcel_endpoint New Castle", await call("get_parcel_endpoint", { state: "DE", county: county.county }), "URL:"],
+      ["find_county Gordon", await call("find_county", { query: "Gordon GA" }), "Notes:"],
+      ["get_parcel_endpoint Gordon", await call("get_parcel_endpoint", { state: "GA", county: "Gordon" }), "Notes:"],
+    ];
+    for (const [name, text, shape] of answers) {
+      assert.ok(text.includes(shape), `CONTROL ${name}: the real answer, not a refusal`);
+      assert.ok(!text.includes("Partial coverage"), `${name}: no partial-coverage line`);
+    }
+  });
+});
+
+test("partial coverage: a record with no endpoint prints the line too", async () => {
+  await withServer(async (call) => {
+    for (const [tool, args] of [
+      ["find_county", { query: "Partial Fixture DE" }],
+      ["get_parcel_endpoint", { state: "DE", county: "Partial Fixture" }],
+    ]) {
+      const lines = (await call(tool, args)).split("\n");
+      assert.ok(lines.includes("FIPS: 10994"), `CONTROL ${tool}: the fixture record answered`);
+      assert.ok(!lines.some((l) => l.startsWith("URL:") || l.startsWith("  URL:")), `CONTROL ${tool}: the fixture has no endpoint`);
+      assert.equal(lines.filter((l) => l === FIXTURE_LINE).length, 1, `${tool}: the fixture line, once`);
+    }
+  }, ["--import", PARTIAL_PRELOAD]);
+});

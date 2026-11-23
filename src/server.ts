@@ -120,6 +120,18 @@ function creditLine(c: CountyRecord): string {
   return c.credit ? `Data credit: ${c.credit}` : "";
 }
 
+/**
+ * A record that answers for only part of its county says so (atlas 0.9.11,
+ * `partialCoverage`), from the structured field and never from the notes text,
+ * so an empty answer is not read as "no parcel here" for a place the record
+ * does not cover. Empty when the record covers its whole county.
+ */
+function partialCoverageLine(c: CountyRecord): string {
+  const p = c.partialCoverage;
+  if (!p) return "";
+  return `Partial coverage: covers ${p.covers.join(", ")} only; not covered: ${p.notCovered.join(", ")} (checked ${p.checked}). Owners in the places not covered are not in this record.`;
+}
+
 function formatCountySummary(c: CountyRecord): string {
   if (!countyHasEndpoint(c)) {
     return [
@@ -127,6 +139,7 @@ function formatCountySummary(c: CountyRecord): string {
       `FIPS: ${c.countyFips ?? "n/a"}`,
       coverageText(c, recordRef(c)),
       c.notes ? `Notes: ${c.notes}` : "",
+      partialCoverageLine(c),
       creditLine(c),
     ]
       .filter(Boolean)
@@ -161,6 +174,7 @@ function formatCountySummary(c: CountyRecord): string {
     `Endpoints (${c.endpoints.length}):`,
     epSummary,
     c.notes ? `Notes: ${c.notes}` : "",
+    partialCoverageLine(c),
     creditLine(c),
   ]
     .filter(Boolean)
@@ -476,6 +490,8 @@ server.registerTool(
       );
       if (i < countyRecord.endpoints.length - 1) lines.push("\n" + "-".repeat(40));
     });
+    const partial = partialCoverageLine(countyRecord);
+    if (partial) lines.push("", partial);
     const credit = creditLine(countyRecord);
     if (credit) lines.push("", credit);
 
