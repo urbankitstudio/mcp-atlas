@@ -6,6 +6,20 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.10 (2026-11-24)
+
+Atlas ^0.9.15. A data-only release. No tool name, tool description, input schema or answer format changed, and the
+coverage counts do not move (568 counties, 539 endpoints, 510 counties with an endpoint).
+
+- **Maine owner joins run per town** in atlas 0.9.15 (Cumberland, York and Kennebec). This server reads none of the
+  new `places` fields and still refuses a join on an endpoint with a `scopeWhere`, which every Maine join has, so
+  its Maine answers do not change. The hosted MCP serves the per-town joins.
+- **St. Mary's MD** no longer lists `DESCLU` among its search fields.
+- **Lockfile.** The repository's lockfile is refreshed within the declared ranges, clearing the 6 advisories
+  `npm audit` reported in transitive dependencies (2 high, 4 moderate: body-parser, zod, hono, @hono/node-server,
+  qs and fast-uri). The published package's dependency ranges do not change, so a fresh install already resolves
+  the patched versions.
+
 ## 0.4.9 (2026-11-23)
 
 Atlas ^0.9.14. A data-only release. No tool name, tool description, input schema or answer format changed. The
