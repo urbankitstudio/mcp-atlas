@@ -6,6 +6,30 @@ and tarball diffs (`npm pack` + `diff`) during the 2026-07-20 repo
 reconciliation, since none of those publishes had a corresponding commit in
 the earlier repository to draw from.
 
+## 0.4.9 (2026-11-23)
+
+Atlas ^0.9.14. A data-only release. No tool name, tool description, input schema or answer format changed. The
+README, package.json and server.json coverage counts move to the new totals (scripts/sync-coverage.mjs).
+
+- **Lake County IN gets an endpoint,** with owner names and mailing addresses. Its record carries the
+  Surveyor's Office credit and a `restricted` licence, because the county's permission is UrbanKit's; for
+  anyone else the layer's own licence applies. The layer's deduction columns, whose values name veteran
+  deductions, are not in the record's search fields, so this server never requests them.
+- **Lexington County SC is recorded with no endpoint,** reason `licence-restricted`. The county publishes a
+  public parcel layer but told us it cannot give permission for our use of that service, and the notes say so.
+- **Fairfax County VA keeps its endpoint,** and its licence moves from `public` to `restricted`. The county
+  will not authorize commercial use of its data, and the notes quote its disclaimer. The notes' property
+  search link now points to the county's current Property Search.
+- **Kent County MI** notes add the Bureau of Equalization's 2026 per-record price for parcel exports, and the
+  coverage summary names it. The notes also record the county's new public parcel view, which has no owner
+  columns and is not indexed yet. The reason stays `login-required`.
+- Coverage: 568 counties, 539 endpoints, 510 counties with an endpoint (was 566, 538 and 509).
+
+The lockfile moves only the atlas entry and this package's own version.
+
+typecheck, build, smoke, test:policy (187 passed), test:currency (11 passed) and sync-coverage --check pass
+against the installed atlas 0.9.14.
+
 ## 0.4.8 (2026-11-23)
 
 Atlas ^0.9.13. No tool name, tool description or input schema changes. Coverage totals do not move (566
